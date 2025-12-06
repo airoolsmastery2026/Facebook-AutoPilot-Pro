@@ -32,6 +32,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [newAccountToken, setNewAccountToken] = useState('');
   const [isAddingAccount, setIsAddingAccount] = useState(false);
   const [notification, setNotification] = useState<NotificationState | null>(null);
+  
+  // State for inline delete confirmation
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // State for activation button feedback
   const [apiActivationStatus, setApiActivationStatus] = useState<'idle' | 'success'>('idle');
@@ -102,18 +105,23 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleRemoveAccount = (id: string, name: string, token: string) => {
-    if (confirm(`CẢNH BÁO: Bạn có chắc chắn muốn xóa tài khoản "${name}" khỏi hệ thống?`)) {
-      
-      // If deleting the currently active account, handle it gracefully
-      if (token === currentUserToken) {
-         showNotification('error', 'Bạn đã xóa tài khoản đang đăng nhập. Hệ thống sẽ làm mới.');
-         // Optionally force logout logic via callback if passed, or user just switches manually
-      }
+  const requestRemoveAccount = (id: string) => {
+    setDeleteConfirmId(id);
+  };
 
-      onUpdateAccounts((prev) => prev.filter(acc => acc.id !== id));
-      showNotification('error', `Đã xóa tài khoản "${name}" thành công.`);
+  const cancelRemoveAccount = () => {
+    setDeleteConfirmId(null);
+  };
+
+  const confirmRemoveAccount = (id: string, name: string, token: string) => {
+    // If deleting the currently active account, handle it gracefully
+    if (token === currentUserToken) {
+       showNotification('info', 'Bạn vừa xóa tài khoản đang đăng nhập.');
     }
+
+    onUpdateAccounts((prev) => prev.filter(acc => acc.id !== id));
+    showNotification('success', `Đã xóa tài khoản "${name}" thành công.`);
+    setDeleteConfirmId(null);
   };
 
   const copyToClipboard = (text: string) => {
@@ -280,6 +288,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   ) : (
                     accounts.map(acc => {
                       const isActive = acc.accessToken === currentUserToken;
+                      const isDeleting = deleteConfirmId === acc.id;
+
                       return (
                         <div 
                           key={acc.id} 
@@ -315,7 +325,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                           </div>
                           
                           <div className="flex items-center space-x-2">
-                            {/* NEW: Open Profile Link */}
+                            {/* Open Profile Link */}
                             <a
                               href={`https://facebook.com/${acc.id}`}
                               target="_blank"
@@ -328,24 +338,45 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                 </svg>
                             </a>
 
-                            {!isActive && (
-                              <button
-                                onClick={() => onSwitchAccount(acc.accessToken)}
-                                className="text-xs bg-gray-600 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition shadow-sm"
-                              >
-                                Chuyển
-                              </button>
+                            {/* Action Buttons: Switch or Delete */}
+                            {isDeleting ? (
+                                <div className="flex items-center gap-2 animate-fade-in bg-gray-800 p-1 rounded-lg border border-red-500/50">
+                                    <span className="text-xs text-red-200 hidden sm:inline px-1">Xóa?</span>
+                                    <button 
+                                        onClick={() => confirmRemoveAccount(acc.id, acc.name, acc.accessToken)}
+                                        className="text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded font-bold shadow-sm"
+                                    >
+                                        Có
+                                    </button>
+                                    <button 
+                                        onClick={cancelRemoveAccount}
+                                        className="text-xs bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded shadow-sm"
+                                    >
+                                        Hủy
+                                    </button>
+                                </div>
+                            ) : (
+                                <>
+                                    {!isActive && (
+                                    <button
+                                        onClick={() => onSwitchAccount(acc.accessToken)}
+                                        className="text-xs bg-gray-600 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition shadow-sm"
+                                    >
+                                        Chuyển
+                                    </button>
+                                    )}
+                                    
+                                    <button
+                                    onClick={() => requestRemoveAccount(acc.id)}
+                                    className="text-gray-500 hover:text-red-400 p-2 hover:bg-red-900/20 rounded-lg transition"
+                                    title="Xóa tài khoản khỏi danh sách"
+                                    >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                    </button>
+                                </>
                             )}
-                            
-                            <button
-                              onClick={() => handleRemoveAccount(acc.id, acc.name, acc.accessToken)}
-                              className="text-gray-500 hover:text-red-400 p-2 hover:bg-red-900/20 rounded-lg transition"
-                              title="Xóa tài khoản khỏi danh sách"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
                           </div>
                         </div>
                       );

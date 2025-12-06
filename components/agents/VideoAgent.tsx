@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Card from '../Card';
 import { generateVideo, ApiKeyError, VideoConfig, ImagePayload } from '../../services/geminiService';
 import { VideoIcon } from '../icons/VideoIcon';
+import { EyeIcon } from '../icons/EyeIcon'; // Import EyeIcon
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 
 interface VideoAgentProps {
@@ -46,6 +47,7 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
 
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isPreviewMode, setIsPreviewMode] = useState(false); // Track if current result is a preview
   const [loadingMessage, setLoadingMessage] = useState(loadingMessages[0]);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -64,6 +66,7 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
   useEffect(() => {
     if (generatedVideo) {
         setGeneratedVideoUrl(generatedVideo);
+        setIsPreviewMode(false); // Auto-pilot assumes standard gen unless specified otherwise
     }
   }, [generatedVideo]);
 
@@ -168,7 +171,7 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
     }
   };
 
-  const handleGenerate = async () => {
+  const executeGeneration = async (isPreview: boolean = false) => {
     if (!prompt) return;
 
     if (!hasApiKeySelected) {
@@ -180,6 +183,7 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
     setIsLoading(true);
     setError(null);
     setGeneratedVideoUrl('');
+    setIsPreviewMode(isPreview);
     
     // Construct Prompt with Character Description if enabled
     let finalPrompt = prompt;
@@ -187,21 +191,42 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
         finalPrompt = `[Character: ${characterDescription.trim()}] ${prompt}`;
     }
 
-    // Force Model Config if Multiple Images are used
-    let activeModel = modelMode === 'quality' ? 'veo-3.1-generate-preview' : 'veo-3.1-fast-generate-preview';
-    let activeRes = resolution;
-    let activeRatio = aspectRatio;
+    // --- Config Logic ---
+    let activeModel: VideoConfig['model'];
+    let activeRes: VideoConfig['resolution'];
+    let activeRatio: VideoConfig['aspectRatio'];
 
-    if (refImages.length > 1) {
-        // Enforce Veo 3 constraints for multiple reference images
-        activeModel = 'veo-3.1-generate-preview'; 
-        activeRes = '720p';
-        activeRatio = '16:9';
-    } else if (modelMode === 'quality') {
-        activeModel = 'veo-3.1-generate-preview';
+    if (isPreview) {
+        // PREVIEW MODE: Force Fast Model, 720p
+        // Note: If multiple images are present, we technically can't use 'fast' model 
+        // with the asset payload structure easily in this implementation without breaking constraints.
+        // So for multi-image, "Preview" might just be "Low Res" generation.
+        if (refImages.length > 1) {
+             activeModel = 'veo-3.1-generate-preview'; 
+             activeRes = '720p';
+             activeRatio = '16:9'; // Forced by multi-ref constraint
+        } else {
+             activeModel = 'veo-3.1-fast-generate-preview';
+             activeRes = '720p';
+             activeRatio = aspectRatio; // Keep user aspect ratio for single/text preview
+        }
+    } else {
+        // NORMAL MODE
+        activeModel = modelMode === 'quality' ? 'veo-3.1-generate-preview' : 'veo-3.1-fast-generate-preview';
+        activeRes = resolution;
+        activeRatio = aspectRatio;
+        
+        // Override constraints for Multi-Ref
+        if (refImages.length > 1) {
+            activeModel = 'veo-3.1-generate-preview'; 
+            activeRes = '720p';
+            activeRatio = '16:9';
+        } else if (modelMode === 'quality') {
+            activeModel = 'veo-3.1-generate-preview';
+        }
     }
 
-    addLog('VideoAgent', `Bắt đầu tạo video (${refImages.length > 1 ? 'Multi-Ref Asset' : 'Standard'}) cho "${finalPrompt.substring(0, 30)}..."`);
+    addLog('VideoAgent', `Bắt đầu ${isPreview ? 'XEM TRƯỚC (Fast)' : 'tạo video'} cho "${finalPrompt.substring(0, 30)}..."`);
 
     try {
       const imagePayloads: ImagePayload[] = await Promise.all(
@@ -212,14 +237,14 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
       );
 
       const config: VideoConfig = {
-          model: activeModel as any,
+          model: activeModel,
           aspectRatio: activeRatio,
           resolution: activeRes
       };
 
       const result = await generateVideo(finalPrompt, imagePayloads, config);
       setGeneratedVideoUrl(result);
-      addLog('VideoAgent', `Tạo video thành công`);
+      addLog('VideoAgent', `${isPreview ? 'Xem trước' : 'Tạo video'} thành công`);
     } catch (err) {
       if (err instanceof ApiKeyError) {
         setHasApiKeySelected(false); // Reset selected state to force re-selection
@@ -229,12 +254,15 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
       } else {
         const errorMessage = (err as Error).message || 'Đã xảy ra lỗi không xác định.';
         setError(errorMessage);
-        addLog('VideoAgent', `Tạo video thất bại: ${errorMessage}`, 'Error');
+        addLog('VideoAgent', `Thất bại: ${errorMessage}`, 'Error');
       }
     } finally {
       setIsLoading(false);
     }
   };
+
+  const handleGenerate = () => executeGeneration(false);
+  const handlePreview = () => executeGeneration(true);
 
   return (
     <Card title="Trợ lý Video (Veo 3.1)" icon={<VideoIcon />} className={isAutoGenerating ? 'ring-2 ring-red-500 shadow-lg shadow-red-500/20' : ''}>
@@ -437,13 +465,24 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
           disabled={needsApiKeySelection || isAutoGenerating}
         />
 
-        <button
-          onClick={handleGenerate}
-          disabled={isLoading || !prompt || needsApiKeySelection || isAutoGenerating}
-          className={`w-full text-white font-semibold py-2 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center ${modelMode === 'quality' || refImages.length > 1 ? 'bg-gradient-to-r from-red-600 to-purple-600 hover:from-red-700 hover:to-purple-700' : 'bg-red-600 hover:bg-red-700'}`}
-        >
-          {isLoading || isAutoGenerating ? 'Đang tạo Video...' : `Tạo Video ${refImages.length > 1 ? '(Multi-Ref)' : ''}`}
-        </button>
+        <div className="flex gap-2">
+            <button
+            onClick={handlePreview}
+            disabled={isLoading || !prompt || needsApiKeySelection || isAutoGenerating || refImages.length > 1}
+            className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-2 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            title={refImages.length > 1 ? "Xem trước nhanh không khả dụng cho Multi-Ref" : "Tạo nhanh video nháp 720p"}
+            >
+                <EyeIcon />
+                Xem trước (Fast)
+            </button>
+            <button
+            onClick={handleGenerate}
+            disabled={isLoading || !prompt || needsApiKeySelection || isAutoGenerating}
+            className={`flex-[2] text-white font-semibold py-2 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center ${modelMode === 'quality' || refImages.length > 1 ? 'bg-gradient-to-r from-red-600 to-purple-600 hover:from-red-700 hover:to-purple-700' : 'bg-red-600 hover:bg-red-700'}`}
+            >
+            {isLoading || isAutoGenerating ? 'Đang tạo...' : `Tạo Video ${refImages.length > 1 ? '(Multi-Ref)' : ''}`}
+            </button>
+        </div>
 
         {(isLoading || isAutoGenerating || generatedVideoUrl || error) && (
           <div className="w-full aspect-video bg-gray-900/50 rounded-md flex items-center justify-center mt-4 p-2 relative overflow-hidden">
@@ -474,11 +513,20 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
               </div>
             )}
             {generatedVideoUrl && !isLoading && !isAutoGenerating && (
-              <video
-                src={generatedVideoUrl}
-                controls
-                className="w-full h-full object-contain rounded-md shadow-lg animate-fade-in"
-              />
+              <div className="relative w-full h-full">
+                  <video
+                    src={generatedVideoUrl}
+                    controls
+                    autoPlay={isPreviewMode} // Auto play if it's a preview
+                    loop={isPreviewMode}
+                    className="w-full h-full object-contain rounded-md shadow-lg animate-fade-in"
+                  />
+                  {isPreviewMode && (
+                      <div className="absolute top-2 left-2 bg-yellow-500 text-black text-xs font-bold px-2 py-1 rounded shadow-md border border-yellow-300 z-10 opacity-80 pointer-events-none">
+                          PREVIEW MODE (720p)
+                      </div>
+                  )}
+              </div>
             )}
             {/* Error is displayed in the main alert box above, but we keep this empty state clean */}
           </div>

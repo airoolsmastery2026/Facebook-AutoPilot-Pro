@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useCallback } from 'react';
 import Card from '../Card';
 import { generateImage, generateImagePromptFromContent } from '../../services/geminiService';
 import { ImageIcon } from '../icons/ImageIcon';
@@ -54,7 +55,7 @@ const ImageAgent: React.FC<ImageAgentProps> = ({
     setIsLoading(false);
   };
 
-  const handleAutoPrompt = async () => {
+  const handleAutoPrompt = useCallback(async () => {
     if (!generatedContent) return;
     setIsPromptLoading(true);
     const newPrompt = await generateImagePromptFromContent(generatedContent);
@@ -65,7 +66,15 @@ const ImageAgent: React.FC<ImageAgentProps> = ({
       addLog('ImageAgent', 'Không thể tạo prompt từ nội dung.', 'Error');
     }
     setIsPromptLoading(false);
-  };
+  }, [generatedContent, addLog]);
+
+  // Automatically generate prompt from content when in Auto-Pilot mode
+  // This acts as a failsafe or autonomous behavior if the prompt isn't provided by the parent immediately
+  useEffect(() => {
+    if (isAutoGenerating && generatedContent && !prompt && !initialPrompt && !isPromptLoading) {
+      handleAutoPrompt();
+    }
+  }, [isAutoGenerating, generatedContent, prompt, initialPrompt, isPromptLoading, handleAutoPrompt]);
 
   const MagicWandIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

@@ -199,6 +199,40 @@ export const generateImagePromptFromContent = async (content: string): Promise<s
   }
 };
 
+export const generateVideoPromptFromContent = async (
+  content: string, 
+  characterDesc?: string, 
+  hasImages: boolean = false
+): Promise<string> => {
+  try {
+    const ai = getGenAIInstance();
+    
+    let basePrompt = `Create a prompt for a video generation model (like Veo/Sora). The video should visualize this content: "${content.substring(0, 200)}..."`;
+    
+    if (characterDesc) {
+      basePrompt += `\nCRITICAL: The main character must match this description: "${characterDesc}".`;
+    }
+    
+    if (hasImages) {
+      basePrompt += `\nNote: Reference images are provided. The video prompt should describe movement and action starting from these references.`;
+    }
+
+    basePrompt += `\nOutput ONLY the English prompt. Describe the camera movement, lighting (Cinematic), and action. Keep it under 60 words.`;
+
+    const result = await retryOperation(async () => {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: basePrompt,
+      });
+      return response.text;
+    });
+    return result.trim();
+  } catch (error) {
+    // Fallback if AI fails
+    return `Cinematic video about: ${content.substring(0, 50)}`;
+  }
+};
+
 export const generateComment = async (
   postTopic: string,
   userInterests: string,
@@ -229,6 +263,22 @@ export const generateComment = async (
     }
     console.error('Error generating comment with Gemini:', error);
     return 'Lỗi: Không thể tạo bình luận.';
+  }
+};
+
+export const generateThumbnail = async (title: string, niche: string): Promise<string | null> => {
+  try {
+    const ai = getGenAIInstance();
+    // Prompt specifically for high CTR thumbnail style
+    const prompt = `YouTube thumbnail for video titled "${title}" in niche "${niche}". 
+    High contrast, vibrant colors, expressive facial expression if human present, clear text overlay potential. 
+    Style: Digital Art, 4K resolution, trending on ArtStation.`;
+    
+    // Thumbnails usually need high quality
+    return await generateImage(prompt, true);
+  } catch (error) {
+    console.error('Error generating thumbnail:', error);
+    return null;
   }
 };
 
@@ -475,12 +525,23 @@ export const generateTrends = async (niche: string): Promise<TrendResult> => {
   }
 };
 
-export const analyzeSentimentAndReply = async (comment: string): Promise<{ sentiment: string; reply: string }> => {
+export const analyzeSentimentAndReply = async (
+  comment: string,
+  shopLink?: string // Optional parameter to inject product context
+): Promise<{ sentiment: string; reply: string }> => {
   try {
     const ai = getGenAIInstance();
+    
+    let contextInstruction = "";
+    if (shopLink && shopLink.trim().length > 0) {
+      contextInstruction = `\nCONTEXT: The user is running a shop. The product link or cart link is: "${shopLink}".
+      INSTRUCTION: If the comment is an INQUIRY (asking for price, shipping, details) or POSITIVE (compliment), you MUST naturally include this link in your reply (e.g., "Mời bạn xem thêm tại: ${shopLink}" or "Đặt hàng ngay tại: ${shopLink}").
+      However, if the sentiment is NEGATIVE, DO NOT include the link. Instead, apologize and ask them to Direct Message (Inbox).`;
+    }
+
     const prompt = `Analyze the sentiment of this Facebook comment: "${comment}". 
     Classify it as 'Positive', 'Negative', or 'Inquiry'.
-    Then, write a polite, professional, and short reply in Vietnamese.
+    Then, write a polite, professional, and short reply in Vietnamese.${contextInstruction}
     
     Format the output exactly like this:
     Sentiment: [Sentiment]
