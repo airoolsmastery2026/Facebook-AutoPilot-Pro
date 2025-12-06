@@ -9,6 +9,8 @@ interface SettingsModalProps {
   onClose: () => void;
   currentUserToken: string | null;
   onSwitchAccount: (token: string) => void;
+  accounts: FacebookAccount[];
+  onUpdateAccounts: (accounts: FacebookAccount[] | ((prev: FacebookAccount[]) => FacebookAccount[])) => void;
 }
 
 interface NotificationState {
@@ -21,10 +23,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   currentUserToken,
   onSwitchAccount,
+  accounts,
+  onUpdateAccounts,
 }) => {
   const [apiKey, setApiKey] = useLocalStorage<string>('gemini-api-key', '');
-  const [accounts, setAccounts] = useLocalStorage<FacebookAccount[]>('fb-accounts', []);
-  const [activeTab, setActiveTab] = useState<'general' | 'accounts'>('accounts'); // Default to accounts for easier access
+  const [activeTab, setActiveTab] = useState<'general' | 'accounts'>('accounts');
   
   const [newAccountToken, setNewAccountToken] = useState('');
   const [isAddingAccount, setIsAddingAccount] = useState(false);
@@ -73,7 +76,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         accessToken: token,
       };
 
-      setAccounts(prev => {
+      // Update via Prop Callback
+      onUpdateAccounts((prev) => {
         // 2. Check if account ID already exists
         const existingIndex = prev.findIndex(acc => acc.id === newAccount.id);
 
@@ -100,7 +104,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleRemoveAccount = (id: string, name: string) => {
     if (confirm(`Bạn có chắc chắn muốn xóa tài khoản "${name}" khỏi danh sách?`)) {
-      setAccounts(prev => prev.filter(acc => acc.id !== id));
+      onUpdateAccounts((prev) => prev.filter(acc => acc.id !== id));
       showNotification('info', `Đã xóa tài khoản "${name}".`);
     }
   };

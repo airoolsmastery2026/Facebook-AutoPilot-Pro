@@ -128,9 +128,11 @@ const App: React.FC = () => {
         currentUserToken={accessToken}
         onSwitchAccount={(token) => {
           handleLogin(token);
-          // Close modal on switch if desired, or keep open
+          // Optional: Close modal on switch
           // setIsSettingsOpen(false); 
         }}
+        accounts={savedAccounts}
+        onUpdateAccounts={setSavedAccounts}
       />
     </div>
   );
