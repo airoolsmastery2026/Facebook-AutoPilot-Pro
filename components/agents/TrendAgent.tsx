@@ -24,10 +24,15 @@ const TrendAgent: React.FC<TrendAgentProps> = ({ onTrendSelected, addLog, autoTr
   const handleScan = async () => {
     setIsLoading(true);
     setTrends(null);
-    const result = await generateTrends(niche);
-    setTrends(result);
-    addLog('TrendAgent', `Đã quét xu hướng cho "${niche}"`);
-    setIsLoading(false);
+    try {
+        const result = await generateTrends(niche);
+        setTrends(result);
+        addLog('TrendAgent', `Đã quét xu hướng cho "${niche}"`);
+    } catch (error) {
+        addLog('TrendAgent', `Lỗi quét xu hướng: ${(error as Error).message}`);
+    } finally {
+        setIsLoading(false);
+    }
   };
 
   const GlobeIcon = () => (

@@ -1,9 +1,11 @@
+
 import { GoogleGenAI, Modality } from '@google/genai';
 import type {
   GenerateContentResponse,
   GetVideosOperationResponse,
   VideosOperation,
 } from '@google/genai';
+import type { TopicAnalysis } from '../types';
 
 // Custom error for API Key issues
 export class ApiKeyError extends Error {
@@ -57,7 +59,6 @@ const retryOperation = async <T>(
       
       // Attempt to parse stringified JSON error message to get the inner details
       if (typeof errorMessage === 'string') {
-          // Look for JSON pattern, use dotall match to capture across newlines
           const jsonMatch = errorMessage.match(/(\{.*\})/s);
           if (jsonMatch) {
               try {
@@ -87,7 +88,6 @@ const retryOperation = async <T>(
         let waitTime = delay * Math.pow(1.5, attempt); // Standard exponential
 
         // 3. Smart Retry: Extract "Please retry in X s" from the error message
-        // Regex handles "retry in 58.76s" or "retry in 58s"
         const match = errorMessage.match(/retry in\s+(\d+(\.\d+)?)\s*s/i);
         if (match) {
           const secondsToWait = parseFloat(match[1]);
@@ -151,6 +151,70 @@ export const suggestContentTopics = async (niche: string): Promise<string[]> => 
   }
 };
 
+// NEW: Advanced Topic Analysis using Google Search
+export const getDeepTopicAnalysis = async (niche: string): Promise<TopicAnalysis> => {
+  try {
+    const ai = getGenAIInstance();
+    // Using Search Grounding to get real data
+    const prompt = `Analyze the topic "${niche}" in Vietnam context.
+    Using Google Search, identify:
+    1. 5 "Trending" topics (Newest, Viral, Breaking News in last 24h/48h).
+    2. 5 "Popular" topics (High search volume, evergreen questions, most cared about).
+    3. 5 "Related" topics (Semantic related keywords, sub-niches).
+
+    Output the result exactly in this format (no markdown bolding):
+    TRENDING:
+    - [Topic 1]
+    - [Topic 2]
+    ...
+    POPULAR:
+    - [Topic 1]
+    - [Topic 2]
+    ...
+    RELATED:
+    - [Topic 1]
+    - [Topic 2]
+    ...
+    `;
+
+    const resultText = await retryOperation(async () => {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash', // Flash is good for search aggregation
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }] // Enable search for "Most Newest/Popular" accuracy
+        }
+      });
+      return response.text;
+    });
+
+    // Parse the response
+    const analysis: TopicAnalysis = { trending: [], popular: [], related: [] };
+    const lines = resultText.split('\n');
+    let currentSection: 'trending' | 'popular' | 'related' | null = null;
+
+    for (const line of lines) {
+      const cleanLine = line.trim();
+      if (cleanLine.startsWith('TRENDING:')) { currentSection = 'trending'; continue; }
+      if (cleanLine.startsWith('POPULAR:')) { currentSection = 'popular'; continue; }
+      if (cleanLine.startsWith('RELATED:')) { currentSection = 'related'; continue; }
+
+      if (currentSection && (cleanLine.startsWith('-') || cleanLine.startsWith('•'))) {
+        const topic = cleanLine.replace(/^[-•]\s*/, '').trim();
+        if (topic) analysis[currentSection].push(topic);
+      }
+    }
+
+    return analysis;
+
+  } catch (error) {
+    if (error instanceof ApiKeyError) throw error;
+    console.error('Error in deep topic analysis:', error);
+    // Fallback structure
+    return { trending: [], popular: [], related: [] };
+  }
+};
+
 export const generatePostTitle = async (content: string): Promise<string> => {
   try {
     const ai = getGenAIInstance();
@@ -202,7 +266,7 @@ export const generateImagePromptFromContent = async (content: string): Promise<s
 export const generateVideoPromptFromContent = async (
   content: string, 
   characterDesc?: string, 
-  hasImages: boolean = false
+  images: ImagePayload[] = []
 ): Promise<string> => {
   try {
     const ai = getGenAIInstance();
@@ -213,7 +277,7 @@ export const generateVideoPromptFromContent = async (
       basePrompt += `\nCRITICAL: The main character must match this description: "${characterDesc}".`;
     }
     
-    if (hasImages) {
+    if (images.length > 0) {
       basePrompt += `\nNote: Reference images are provided. The video prompt should describe movement and action starting from these references.`;
     }
 
@@ -399,8 +463,6 @@ export const generateVideo = async (
     let operation: VideosOperation | GetVideosOperationResponse =
       await retryOperation(async () => await ai.models.generateVideos(payload));
 
-    // POLLING OPTIMIZATION: Reduced check interval from 10000ms (10s) to 2000ms (2s)
-    // This significantly improves perceived speed for short video generation (Veo Fast).
     while (!operation.done) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       operation = await retryOperation(async () => 
@@ -439,7 +501,7 @@ export const generateVideo = async (
       // Broad check for 404/Not Found in fetch
       if (response.status === 404 || errorBody.includes("Requested entity was not found")) {
         throw new ApiKeyError(
-          'Lỗi tải video (404): Không tìm thấy tài nguyên. Có thể Khóa API của bạn không hợp lệ hoặc không có quyền truy cập dự án trả phí.',
+          'Lỗi tải video (404): Không tìm thấy tài nguyên. Có thể Khóa API của bạn không hợp lệ hoặc không có quyền truy cập dự án trả phí (Billing).',
           'NOT_FOUND_404'
         );
       }
@@ -455,7 +517,6 @@ export const generateVideo = async (
     // Improved error parsing
     let errorMessage = (error as any).message || String(error);
     
-    // Try to extract nested JSON message from API error strings
     if (typeof errorMessage === 'string' && errorMessage.includes('{')) {
         try {
             const jsonMatch = errorMessage.match(/\{.*\}/);
@@ -476,12 +537,11 @@ export const generateVideo = async (
         (errorMessage.includes('404') && errorMessage.includes('NOT_FOUND'))
     ) {
          throw new ApiKeyError(
-            'Lỗi Model Veo (404): Không tìm thấy thực thể yêu cầu. Nguyên nhân phổ biến: API Key chưa được liên kết với Dự án Google Cloud có bật Thanh toán (Billing) hoặc model chưa được kích hoạt cho dự án này.',
+            'Lỗi Model Veo (404): Không tìm thấy thực thể. Vui lòng kiểm tra Billing/Tín dụng của dự án Google Cloud liên kết với API Key.',
             'NOT_FOUND_404'
          );
     }
 
-    // Check for Permission/Invalid Key issues
     if (errorMessage.includes('API_KEY_INVALID') || errorMessage.includes('PERMISSION_DENIED')) {
          throw new ApiKeyError(
             'Lỗi Quyền (403): API Key không hợp lệ hoặc không có quyền truy cập model Veo. Vui lòng kiểm tra lại.',

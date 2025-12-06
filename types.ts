@@ -19,6 +19,7 @@ export interface ScheduledPost {
   content: string;
   imageUrl?: string;
   videoUrl?: string; // Added support for Video
+  thumbnailUrl?: string; // Added thumbnail
   scheduledTime: string;
   status: 'Scheduled' | 'Posted' | 'Failed';
 }
@@ -46,6 +47,7 @@ export type AutoPilotPhase =
   | 'ANALYZING_IMAGE_PROMPT' 
   | 'GENERATING_IMAGE' 
   | 'GENERATING_VIDEO' // New phase
+  | 'GENERATING_THUMBNAIL' // New phase
   | 'SCHEDULING' 
   | 'COOLDOWN';
 
@@ -65,4 +67,16 @@ export interface AppBackup {
     posts: ScheduledPost[];
     logs: ActivityLog[];
   };
+}
+
+export interface AutoPilotState {
+  phase: AutoPilotPhase;
+  logs: string[];
+}
+
+// New Interface for Deep Topic Analysis
+export interface TopicAnalysis {
+  trending: string[]; // Mới nhất, Viral
+  popular: string[];  // Quan tâm nhiều nhất
+  related: string[];  // Chủ đề liên quan
 }

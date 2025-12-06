@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import Card from '../Card';
 import { analyzeSentimentAndReply } from '../../services/geminiService';
@@ -71,7 +72,7 @@ const InboxAgent: React.FC<InboxAgentProps> = ({ addLog }) => {
 
                 addLog('SmartInbox', `[Auto] Đã trả lời ${target.user}: "${result.reply}" (${result.sentiment})`);
             } catch (error) {
-                addLog('SmartInbox', `[Auto] Lỗi khi xử lý bình luận ID ${target.id}`, 'Error');
+                addLog('SmartInbox', `[Auto] Lỗi khi xử lý bình luận ID ${target.id}: ${(error as Error).message}`, 'Error');
             } finally {
                 setProcessingId(null);
             }
@@ -98,10 +99,15 @@ const InboxAgent: React.FC<InboxAgentProps> = ({ addLog }) => {
   const handleAnalyze = async (id: number, text: string) => {
     setProcessingId(id);
     setDraftReply(null);
-    const result = await analyzeSentimentAndReply(text, shopLink);
-    setDraftReply({ id, text: result.reply, sentiment: result.sentiment });
-    setProcessingId(null);
-    addLog('SmartInbox', `Đã phân tích bình luận của ID ${id}: ${result.sentiment}`);
+    try {
+        const result = await analyzeSentimentAndReply(text, shopLink);
+        setDraftReply({ id, text: result.reply, sentiment: result.sentiment });
+        addLog('SmartInbox', `Đã phân tích bình luận của ID ${id}: ${result.sentiment}`);
+    } catch (error) {
+        addLog('SmartInbox', `Lỗi phân tích: ${(error as Error).message}`, 'Error');
+    } finally {
+        setProcessingId(null);
+    }
   };
 
   const handleSendReply = (id: number) => {

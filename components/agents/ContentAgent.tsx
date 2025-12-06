@@ -1,8 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import Card from '../Card';
-import { generateText, suggestContentTopics, generatePostTitle } from '../../services/geminiService';
+import { generateText, getDeepTopicAnalysis, generatePostTitle, ApiKeyError } from '../../services/geminiService';
 import { PenIcon } from '../icons/PenIcon';
+import { DownloadIcon } from '../icons/DownloadIcon';
+import type { TopicAnalysis } from '../../types';
 
 interface ContentAgentProps {
   onContentGenerated: (content: string, title: string) => void;
@@ -24,8 +26,11 @@ const ContentAgent: React.FC<ContentAgentProps> = ({
   const [generatedText, setGeneratedText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
-  const [suggestedTopics, setSuggestedTopics] = useState<string[]>([]);
+  // Advanced Suggestions State
+  const [topicAnalysis, setTopicAnalysis] = useState<TopicAnalysis | null>(null);
   const [isSuggesting, setIsSuggesting] = useState(false);
+  const [activeSuggestionTab, setActiveSuggestionTab] = useState<'trending' | 'popular' | 'related'>('trending');
+
   const [isTitling, setIsTitling] = useState(false);
 
   // Sync state with props (Manual + Auto)
@@ -38,37 +43,86 @@ const ContentAgent: React.FC<ContentAgentProps> = ({
   }, [generatedContent]);
 
   const handleSuggestTopics = async () => {
-      if (!topic) return;
+      if (!topic) {
+          alert("Vui lòng nhập chủ đề chính để AI phân tích!");
+          return;
+      }
       setIsSuggesting(true);
-      const suggestions = await suggestContentTopics(topic);
-      setSuggestedTopics(suggestions);
-      setIsSuggesting(false);
+      setTopicAnalysis(null);
+      try {
+        const analysis = await getDeepTopicAnalysis(topic);
+        setTopicAnalysis(analysis);
+        // Default to trending if available, otherwise fallback
+        if (analysis.trending.length > 0) setActiveSuggestionTab('trending');
+        else if (analysis.popular.length > 0) setActiveSuggestionTab('popular');
+        
+        addLog('ContentAgent', `Đã phân tích chuyên sâu chủ đề "${topic}"`);
+      } catch (error) {
+        addLog('ContentAgent', `Lỗi gợi ý chủ đề: ${(error as Error).message}`, 'Error');
+      } finally {
+        setIsSuggesting(false);
+      }
   }
 
   const handleGenerateTitle = async () => {
       if (!generatedText) return;
       setIsTitling(true);
-      const newTitle = await generatePostTitle(generatedText);
-      setTitle(newTitle);
-      onContentGenerated(generatedText, newTitle); // Update parent
-      setIsTitling(false);
+      try {
+        const newTitle = await generatePostTitle(generatedText);
+        setTitle(newTitle);
+        onContentGenerated(generatedText, newTitle); // Update parent
+      } catch (error) {
+        addLog('ContentAgent', `Lỗi tạo tiêu đề: ${(error as Error).message}`, 'Error');
+      } finally {
+        setIsTitling(false);
+      }
   }
 
   const handleGenerate = async () => {
     if (!topic) return;
     setIsLoading(true);
     setGeneratedText('');
-    const prompt = `Create a natural, engaging Facebook post about "${topic}". Include relevant hashtags. The tone should be conversational and friendly in Vietnamese.`;
-    const result = await generateText(prompt);
     
-    // Auto generate title after content
-    const autoTitle = await generatePostTitle(result);
-    setTitle(autoTitle);
-    
-    setGeneratedText(result);
-    onContentGenerated(result, autoTitle);
-    addLog('ContentAgent', `Đã tạo bài đăng về "${topic}"`);
-    setIsLoading(false);
+    try {
+        const prompt = `Create a natural, engaging Facebook post about "${topic}". Include relevant hashtags. The tone should be conversational and friendly in Vietnamese.`;
+        const result = await generateText(prompt);
+        
+        // Auto generate title after content
+        let autoTitle = '';
+        try {
+            autoTitle = await generatePostTitle(result);
+            setTitle(autoTitle);
+        } catch (e) {
+            console.warn('Could not auto-generate title', e);
+        }
+        
+        setGeneratedText(result);
+        onContentGenerated(result, autoTitle);
+        addLog('ContentAgent', `Đã tạo bài đăng về "${topic}"`);
+    } catch (error) {
+         const msg = (error as Error).message;
+         if (error instanceof ApiKeyError) {
+             setGeneratedText(`Lỗi: ${msg}`);
+         } else {
+             setGeneratedText(`Lỗi: ${msg}`);
+         }
+         addLog('ContentAgent', `Tạo nội dung thất bại: ${msg}`, 'Error');
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
+  const handleDownload = () => {
+    if (!generatedText) return;
+    const element = document.createElement("a");
+    const contentToSave = `TIÊU ĐỀ: ${title}\n\nNỘI DUNG:\n${generatedText}\n\nCHỦ ĐỀ: ${topic}`;
+    const file = new Blob([contentToSave], {type: 'text/plain'});
+    element.href = URL.createObjectURL(file);
+    element.download = `facebook-post-${Date.now()}.txt`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+    addLog('ContentAgent', 'Đã tải nội dung xuống máy tính.');
   };
 
   return (
@@ -97,25 +151,62 @@ const ContentAgent: React.FC<ContentAgentProps> = ({
             <button
                 onClick={handleSuggestTopics}
                 disabled={isSuggesting || isAutoGenerating || !topic}
-                className="bg-purple-600 hover:bg-purple-700 text-white px-3 rounded-md text-sm font-medium transition disabled:bg-gray-700"
-                title="Gợi ý chủ đề liên quan"
+                className="bg-purple-600 hover:bg-purple-700 text-white px-3 rounded-md text-sm font-medium transition disabled:bg-gray-700 flex items-center gap-1 min-w-[100px] justify-center"
+                title="Phân tích sâu: Hot Trend, Phổ biến, Liên quan"
             >
-                {isSuggesting ? '...' : '💡 Gợi ý'}
+                {isSuggesting ? (
+                    <span className="animate-spin">⏳</span>
+                ) : (
+                    <>💡 Gợi ý</>
+                )}
             </button>
         </div>
 
-        {/* Suggested Topics Chips */}
-        {suggestedTopics.length > 0 && (
-            <div className="flex flex-wrap gap-2 animate-fade-in">
-                {suggestedTopics.map((s, idx) => (
+        {/* Advanced Categorized Suggestions */}
+        {topicAnalysis && (
+            <div className="bg-gray-900/50 rounded-lg border border-gray-700 p-3 animate-fade-in">
+                {/* Tabs */}
+                <div className="flex border-b border-gray-700 mb-2">
                     <button 
-                        key={idx}
-                        onClick={() => { setTopic(s); setSuggestedTopics([]); }}
-                        className="text-xs bg-gray-800 hover:bg-blue-900 border border-gray-600 hover:border-blue-500 rounded-full px-3 py-1 transition text-gray-300"
+                        onClick={() => setActiveSuggestionTab('trending')}
+                        className={`flex-1 pb-2 text-xs font-bold uppercase transition ${activeSuggestionTab === 'trending' ? 'text-red-400 border-b-2 border-red-400' : 'text-gray-500 hover:text-white'}`}
                     >
-                        {s}
+                        🔥 Mới nhất (Viral)
                     </button>
-                ))}
+                    <button 
+                        onClick={() => setActiveSuggestionTab('popular')}
+                        className={`flex-1 pb-2 text-xs font-bold uppercase transition ${activeSuggestionTab === 'popular' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-500 hover:text-white'}`}
+                    >
+                        🏆 Phổ biến nhất
+                    </button>
+                    <button 
+                        onClick={() => setActiveSuggestionTab('related')}
+                        className={`flex-1 pb-2 text-xs font-bold uppercase transition ${activeSuggestionTab === 'related' ? 'text-green-400 border-b-2 border-green-400' : 'text-gray-500 hover:text-white'}`}
+                    >
+                        🔗 Liên quan
+                    </button>
+                </div>
+
+                {/* List Content */}
+                <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
+                    {topicAnalysis[activeSuggestionTab].length > 0 ? (
+                        topicAnalysis[activeSuggestionTab].map((s, idx) => (
+                            <button 
+                                key={idx}
+                                onClick={() => { setTopic(s); setTopicAnalysis(null); }}
+                                className={`text-xs border rounded-full px-3 py-1 transition text-white ${
+                                    activeSuggestionTab === 'trending' ? 'bg-red-900/30 border-red-500/50 hover:bg-red-600' :
+                                    activeSuggestionTab === 'popular' ? 'bg-blue-900/30 border-blue-500/50 hover:bg-blue-600' :
+                                    'bg-green-900/30 border-green-500/50 hover:bg-green-600'
+                                }`}
+                            >
+                                {s}
+                            </button>
+                        ))
+                    ) : (
+                        <p className="text-xs text-gray-500 italic w-full text-center py-2">Không tìm thấy dữ liệu cho mục này.</p>
+                    )}
+                </div>
             </div>
         )}
 
@@ -152,12 +243,21 @@ const ContentAgent: React.FC<ContentAgentProps> = ({
         </button>
 
         {generatedText && (
-          <textarea
-            value={generatedText}
-            readOnly
-            rows={6}
-            className="w-full mt-4 p-3 bg-gray-900/50 border border-gray-600 rounded-md text-sm text-gray-300 animate-fade-in"
-          />
+          <div className="relative animate-fade-in">
+              <textarea
+                value={generatedText}
+                readOnly
+                rows={6}
+                className="w-full mt-4 p-3 bg-gray-900/50 border border-gray-600 rounded-md text-sm text-gray-300"
+              />
+              <button
+                onClick={handleDownload}
+                className="absolute top-6 right-2 text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 p-1.5 rounded-md transition"
+                title="Tải nội dung xuống (.txt)"
+              >
+                 <DownloadIcon />
+              </button>
+          </div>
         )}
       </div>
     </Card>

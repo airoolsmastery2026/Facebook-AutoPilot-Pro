@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Card from '../Card';
 import { generateImage, generateImagePromptFromContent } from '../../services/geminiService';
 import { ImageIcon } from '../icons/ImageIcon';
+import { DownloadIcon } from '../icons/DownloadIcon';
 
 interface ImageAgentProps {
   onImageGenerated: (imageUrl: string) => void;
@@ -43,29 +44,43 @@ const ImageAgent: React.FC<ImageAgentProps> = ({
     const modelLabel = useProModel ? "Gemini 3 Pro (4K)" : "Nano Banana";
     addLog('ImageAgent', `Đang tạo ảnh với mô hình ${modelLabel}...`);
 
-    const result = await generateImage(prompt, useProModel);
-    
-    if (result) {
-      setImageUrl(result);
-      onImageGenerated(result);
-      addLog('ImageAgent', `Đã tạo hình ảnh thành công (${modelLabel}).`);
-    } else {
-      addLog('ImageAgent', `Tạo hình ảnh thất bại. Có thể do lỗi API hoặc nội dung không phù hợp.`, 'Error');
+    try {
+        const result = await generateImage(prompt, useProModel);
+        
+        if (result) {
+        setImageUrl(result);
+        onImageGenerated(result);
+        addLog('ImageAgent', `Đã tạo hình ảnh thành công (${modelLabel}).`);
+        } else {
+        addLog('ImageAgent', `Tạo hình ảnh thất bại. Có thể do lỗi API hoặc nội dung không phù hợp.`, 'Error');
+        }
+    } catch (error) {
+        if (error instanceof Error && (error as any).type === 'MISSING') {
+             addLog('ImageAgent', `Lỗi: ${(error as Error).message}`, 'Error');
+        } else {
+             addLog('ImageAgent', `Lỗi tạo ảnh: ${(error as Error).message}`, 'Error');
+        }
+    } finally {
+        setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleAutoPrompt = useCallback(async () => {
     if (!generatedContent) return;
     setIsPromptLoading(true);
-    const newPrompt = await generateImagePromptFromContent(generatedContent);
-    if (newPrompt) {
-      setPrompt(newPrompt);
-      addLog('ImageAgent', 'Đã tự động tạo prompt từ nội dung bài viết.');
-    } else {
-      addLog('ImageAgent', 'Không thể tạo prompt từ nội dung.', 'Error');
+    try {
+        const newPrompt = await generateImagePromptFromContent(generatedContent);
+        if (newPrompt) {
+        setPrompt(newPrompt);
+        addLog('ImageAgent', 'Đã tự động tạo prompt từ nội dung bài viết.');
+        } else {
+        addLog('ImageAgent', 'Không thể tạo prompt từ nội dung.', 'Error');
+        }
+    } catch (error) {
+        addLog('ImageAgent', `Lỗi tạo prompt: ${(error as Error).message}`, 'Error');
+    } finally {
+        setIsPromptLoading(false);
     }
-    setIsPromptLoading(false);
   }, [generatedContent, addLog]);
 
   // Automatically generate prompt from content when in Auto-Pilot mode
@@ -75,6 +90,17 @@ const ImageAgent: React.FC<ImageAgentProps> = ({
       handleAutoPrompt();
     }
   }, [isAutoGenerating, generatedContent, prompt, initialPrompt, isPromptLoading, handleAutoPrompt]);
+
+  const handleDownload = () => {
+      if (!imageUrl) return;
+      const link = document.createElement('a');
+      link.href = imageUrl;
+      link.download = `ai-image-${Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      addLog('ImageAgent', 'Đã tải hình ảnh xuống máy tính.');
+  };
 
   const MagicWandIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -152,7 +178,7 @@ const ImageAgent: React.FC<ImageAgentProps> = ({
         >
           {isLoading || isAutoGenerating ? 'Đang tạo...' : useProModel ? 'Tạo ảnh (Pro 4K)' : 'Tạo hình ảnh'}
         </button>
-        <div className="w-full aspect-square bg-gray-700/50 rounded-md flex items-center justify-center mt-4 overflow-hidden relative">
+        <div className="w-full aspect-square bg-gray-700/50 rounded-md flex items-center justify-center mt-4 overflow-hidden relative group">
           {(isLoading || isAutoGenerating) && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-800/80 z-10">
                 <svg
@@ -179,11 +205,22 @@ const ImageAgent: React.FC<ImageAgentProps> = ({
             </div>
           )}
           {imageUrl && (
-            <img
-              src={imageUrl}
-              alt={prompt}
-              className="w-full h-full object-cover rounded-md animate-fade-in"
-            />
+            <>
+                <img
+                src={imageUrl}
+                alt={prompt}
+                className="w-full h-full object-cover rounded-md animate-fade-in"
+                />
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                    onClick={handleDownload}
+                    className="bg-gray-900/80 hover:bg-black text-white p-2 rounded-lg shadow-lg"
+                    title="Tải ảnh xuống"
+                    >
+                    <DownloadIcon />
+                    </button>
+                </div>
+            </>
           )}
           {!imageUrl && !isLoading && !isAutoGenerating && (
             <span className="text-gray-500 text-sm">Xem trước hình ảnh</span>

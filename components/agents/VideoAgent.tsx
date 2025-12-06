@@ -3,7 +3,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import Card from '../Card';
 import { generateVideo, ApiKeyError, VideoConfig, ImagePayload } from '../../services/geminiService';
 import { VideoIcon } from '../icons/VideoIcon';
-import { EyeIcon } from '../icons/EyeIcon'; // Import EyeIcon
+import { EyeIcon } from '../icons/EyeIcon'; 
+import { DownloadIcon } from '../icons/DownloadIcon';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 
 interface VideoAgentProps {
@@ -28,6 +29,7 @@ const fileToBase64 = (file: File): Promise<string> =>
 
 const loadingMessages = [
   'Đang kết nối siêu máy tính VEO 3.1...',
+  'Đang xác thực tài khoản & tín dụng...',
   'Đang dựng kịch bản 3D & Ánh sáng...',
   'Đang render khung hình (Ray Tracing)...',
   'Đang xử lý chuyển động vật lý...',
@@ -38,7 +40,7 @@ const loadingMessages = [
 
 const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoGenerating = false }) => {
   const [prompt, setPrompt] = useState('');
-  const [videoTitle, setVideoTitle] = useState(''); // New Video Title State
+  const [videoTitle, setVideoTitle] = useState(''); 
   
   // Consistent Character State
   const [isConsistencyMode, setIsConsistencyMode] = useLocalStorage<boolean>('video-consistency-mode', false);
@@ -70,25 +72,23 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
     }
   }, [generatedVideo]);
 
+  // Initial Check for API Key
   useEffect(() => {
     const checkApiKeyStatus = async () => {
+      // @ts-ignore
       if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+        // @ts-ignore
         const isSelected = await window.aistudio.hasSelectedApiKey();
         setHasApiKeySelected(isSelected);
         if (!isSelected) {
           setNeedsApiKeySelection(true);
-          setError(
-            'Để tạo video, bạn cần chọn Khóa API. Khóa này phải được liên kết với một dự án GCP có tính năng thanh toán được bật.'
-          );
         }
       } else {
+        // Fallback for dev environments without the wrapper
         if (process.env.API_KEY) {
           setHasApiKeySelected(true);
         } else {
           setNeedsApiKeySelection(true);
-          setError(
-            'API_KEY chưa được cấu hình. Để tạo video, bạn cần chọn Khóa API từ AI Studio.'
-          );
         }
       }
     };
@@ -154,9 +154,12 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
   };
 
   const handleSelectApiKey = async () => {
+    // @ts-ignore
     if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
       try {
+        // @ts-ignore
         await window.aistudio.openSelectKey();
+        // Assume success immediately to avoid race conditions
         setHasApiKeySelected(true);
         setNeedsApiKeySelection(false);
         setError(null);
@@ -166,7 +169,7 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
         setNeedsApiKeySelection(true);
       }
     } else {
-      setError('window.aistudio API không có sẵn.');
+      setError('Môi trường không hỗ trợ chọn khóa API tự động. Vui lòng nhập tay trong Cài đặt.');
       setNeedsApiKeySelection(true);
     }
   };
@@ -174,9 +177,10 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
   const executeGeneration = async (isPreview: boolean = false) => {
     if (!prompt) return;
 
+    // Strict Billing Check Check
     if (!hasApiKeySelected) {
       setNeedsApiKeySelection(true);
-      setError('Bạn cần chọn Khóa API để tạo video.');
+      setError('Vui lòng chọn Khóa API (Billing) để tiếp tục.');
       return;
     }
 
@@ -198,17 +202,14 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
 
     if (isPreview) {
         // PREVIEW MODE: Force Fast Model, 720p
-        // Note: If multiple images are present, we technically can't use 'fast' model 
-        // with the asset payload structure easily in this implementation without breaking constraints.
-        // So for multi-image, "Preview" might just be "Low Res" generation.
         if (refImages.length > 1) {
              activeModel = 'veo-3.1-generate-preview'; 
              activeRes = '720p';
-             activeRatio = '16:9'; // Forced by multi-ref constraint
+             activeRatio = '16:9'; 
         } else {
              activeModel = 'veo-3.1-fast-generate-preview';
              activeRes = '720p';
-             activeRatio = aspectRatio; // Keep user aspect ratio for single/text preview
+             activeRatio = aspectRatio;
         }
     } else {
         // NORMAL MODE
@@ -247,10 +248,17 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
       addLog('VideoAgent', `${isPreview ? 'Xem trước' : 'Tạo video'} thành công`);
     } catch (err) {
       if (err instanceof ApiKeyError) {
-        setHasApiKeySelected(false); // Reset selected state to force re-selection
+        // Critical: If API Key fails (404/Permission), reset selection to force user to pick a new one
+        setHasApiKeySelected(false); 
         setNeedsApiKeySelection(true);
-        setError(err.message);
-        addLog('VideoAgent', `Lỗi API Key: ${err.message}`, 'Error');
+        
+        const isBillingError = err.type === 'NOT_FOUND_404';
+        const userMsg = isBillingError 
+            ? 'Lỗi Tín dụng/Billing: Khóa API hiện tại không hỗ trợ Veo hoặc đã hết hạn mức.' 
+            : err.message;
+
+        setError(userMsg);
+        addLog('VideoAgent', `Lỗi Billing: ${userMsg}`, 'Error');
       } else {
         const errorMessage = (err as Error).message || 'Đã xảy ra lỗi không xác định.';
         setError(errorMessage);
@@ -264,6 +272,17 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
   const handleGenerate = () => executeGeneration(false);
   const handlePreview = () => executeGeneration(true);
 
+  const handleDownload = () => {
+    if (!generatedVideoUrl) return;
+    const link = document.createElement('a');
+    link.href = generatedVideoUrl;
+    link.download = `ai-video-${Date.now()}.mp4`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    addLog('VideoAgent', 'Đã tải video xuống máy tính.');
+  };
+
   return (
     <Card title="Trợ lý Video (Veo 3.1)" icon={<VideoIcon />} className={isAutoGenerating ? 'ring-2 ring-red-500 shadow-lg shadow-red-500/20' : ''}>
       <div className="space-y-4">
@@ -275,30 +294,46 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
           )}
         </p>
 
+        {/* --- BILLING & API KEY WARNING --- */}
         {needsApiKeySelection && (
-          <div className="bg-orange-900/40 border border-orange-700 text-orange-200 p-4 rounded-lg space-y-3" role="alert" aria-live="polite">
-            <p className="font-semibold">⚠️ Cần cập nhật Khóa API:</p>
-            <p className="text-sm">
-              Model Video (Veo) yêu cầu Khóa API được liên kết với <b>Dự án Google Cloud có tính năng Thanh toán (Billing)</b>. Khóa hiện tại có thể chưa hợp lệ hoặc là khóa miễn phí (Free Tier) không hỗ trợ Veo.
-            </p>
-            {error && <p className="text-red-300 text-xs italic bg-black/20 p-2 rounded">{error}</p>}
-            <button
-              onClick={handleSelectApiKey}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md transition"
-              disabled={isLoading || isAutoGenerating}
-            >
-              Chọn Khóa API (Có Billing)
-            </button>
-            <div className="text-center">
-                 <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:underline">
-                    Xem hướng dẫn về Billing
-                 </a>
+          <div className="bg-gradient-to-r from-orange-900/60 to-red-900/60 border border-orange-500/50 text-orange-100 p-4 rounded-lg shadow-lg" role="alert" aria-live="polite">
+            <div className="flex items-start gap-3">
+                 <div className="text-2xl">💳</div>
+                 <div className="flex-1 space-y-2">
+                    <h4 className="font-bold text-white">Yêu cầu Tín dụng & Billing</h4>
+                    <p className="text-sm">
+                      Model <b>Veo 3.1</b> là mô hình cao cấp, yêu cầu Khóa API được liên kết với <b>Dự án Google Cloud có tính năng Thanh toán (Billing)</b>.
+                    </p>
+                    <p className="text-xs text-orange-300">
+                      * Khóa miễn phí (Free Tier) sẽ không hoạt động và báo lỗi 404/Not Found.
+                    </p>
+                    
+                    {error && (
+                        <div className="bg-black/30 p-2 rounded text-xs text-red-300 font-mono border border-red-500/30">
+                            Lỗi: {error}
+                        </div>
+                    )}
+
+                    <button
+                        onClick={handleSelectApiKey}
+                        className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded shadow-md transition-all active:scale-95"
+                        disabled={isLoading || isAutoGenerating}
+                    >
+                        Chọn Khóa API (Có Billing)
+                    </button>
+                    
+                    <div className="text-center pt-1">
+                        <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-300 hover:text-white underline">
+                            Xem bảng giá & hạn mức tín dụng
+                        </a>
+                    </div>
+                 </div>
             </div>
           </div>
         )}
 
         {/* --- SETTINGS PANEL --- */}
-        <div className="bg-gray-800/50 p-3 rounded-lg border border-gray-700 grid grid-cols-2 gap-3 opacity-90">
+        <div className={`bg-gray-800/50 p-3 rounded-lg border border-gray-700 grid grid-cols-2 gap-3 transition-opacity ${needsApiKeySelection ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
             {/* Model & Consistency Toggle */}
             <div className="col-span-2 flex justify-between items-start gap-2">
                 <div className="flex-1">
@@ -381,13 +416,13 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
                     placeholder="Mô tả chi tiết nhân vật cố định (VD: Robot màu đỏ, mắt xanh, phong cách Cyberpunk...)"
                     rows={2}
                     className="w-full px-3 py-2 bg-gray-800 border border-green-700/50 rounded-md focus:outline-none focus:ring-1 focus:ring-green-500 text-xs text-gray-200 placeholder-gray-500"
+                    disabled={needsApiKeySelection}
                 />
-                <p className="text-[10px] text-gray-500 mt-1">* Mô tả này sẽ tự động được thêm vào đầu mỗi video để AI ghi nhớ nhân vật.</p>
             </div>
         )}
 
         {/* --- MULTI-IMAGE UPLOAD --- */}
-        <div>
+        <div className={needsApiKeySelection ? 'opacity-50 pointer-events-none' : ''}>
           <label className="text-xs text-gray-400 block mb-1">
              {refImages.length > 0 ? `Ảnh tham chiếu (${refImages.length}/3)` : 'Ảnh tham chiếu / Start Frame'}
              <span className="text-gray-500 italic ml-1">- Tối đa 3 ảnh</span>
@@ -465,7 +500,7 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
           disabled={needsApiKeySelection || isAutoGenerating}
         />
 
-        <div className="flex gap-2">
+        <div className={`flex gap-2 ${needsApiKeySelection ? 'opacity-50 pointer-events-none' : ''}`}>
             <button
             onClick={handlePreview}
             disabled={isLoading || !prompt || needsApiKeySelection || isAutoGenerating || refImages.length > 1}
@@ -484,8 +519,8 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
             </button>
         </div>
 
-        {(isLoading || isAutoGenerating || generatedVideoUrl || error) && (
-          <div className="w-full aspect-video bg-gray-900/50 rounded-md flex items-center justify-center mt-4 p-2 relative overflow-hidden">
+        {(isLoading || isAutoGenerating || generatedVideoUrl || error) && !needsApiKeySelection && (
+          <div className="w-full aspect-video bg-gray-900/50 rounded-md flex items-center justify-center mt-4 p-2 relative overflow-hidden group">
             {(isLoading || isAutoGenerating) && (
               <div className="text-center z-10">
                 <svg
@@ -526,9 +561,17 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
                           PREVIEW MODE (720p)
                       </div>
                   )}
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                     <button
+                        onClick={handleDownload}
+                        className="bg-gray-900/80 hover:bg-black text-white p-2 rounded-lg shadow-lg"
+                        title="Tải video xuống"
+                    >
+                        <DownloadIcon />
+                    </button>
+                  </div>
               </div>
             )}
-            {/* Error is displayed in the main alert box above, but we keep this empty state clean */}
           </div>
         )}
       </div>
