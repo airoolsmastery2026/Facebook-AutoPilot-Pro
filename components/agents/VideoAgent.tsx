@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import Card from '../Card';
-import { generateVideo, ApiKeyError, VideoConfig, ImagePayload } from '../../services/geminiService';
+import { generateVideo, ApiKeyError, VideoConfig, ImagePayload, generateVideoPromptFromContent } from '../../services/geminiService';
 import { VideoIcon } from '../icons/VideoIcon';
 import { EyeIcon } from '../icons/EyeIcon'; 
 import { DownloadIcon } from '../icons/DownloadIcon';
@@ -10,6 +10,7 @@ import { useLocalStorage } from '../../hooks/useLocalStorage';
 interface VideoAgentProps {
   addLog: (agent: string, action: string, status?: 'Success' | 'Error') => void;
   generatedVideo?: string; // Video URL injected by AutoPilot
+  generatedContent?: string; // Content injected by AutoPilot
   isAutoGenerating?: boolean; // State injected by AutoPilot
 }
 
@@ -38,7 +39,7 @@ const loadingMessages = [
   'Gần xong rồi, video của bạn sẽ rất tuyệt...',
 ];
 
-const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoGenerating = false }) => {
+const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, generatedContent = '', isAutoGenerating = false }) => {
   const [prompt, setPrompt] = useState('');
   const [videoTitle, setVideoTitle] = useState(''); 
   
@@ -48,7 +49,9 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
   const [refImages, setRefImages] = useState<ImageFile[]>([]);
 
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState('');
+  
   const [isLoading, setIsLoading] = useState(false);
+  const [isPromptLoading, setIsPromptLoading] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false); // Track if current result is a preview
   const [loadingMessage, setLoadingMessage] = useState(loadingMessages[0]);
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +124,35 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
     };
   }, [isLoading, isAutoGenerating]);
 
+  // SMART PROMPT AUTO-GENERATION
+  const handleAutoSmartPrompt = async () => {
+      if (!generatedContent && !refImages.length) return;
+      
+      setIsPromptLoading(true);
+      try {
+          // Prepare payload details for service
+          const imagePayloads: ImagePayload[] = await Promise.all(
+              refImages.map(async (img) => ({
+                  imageBytes: '', // Not needed for prompt gen logic context, just counting
+                  mimeType: img.file.type
+              }))
+          );
+
+          const newPrompt = await generateVideoPromptFromContent(
+              generatedContent || "A creative video", 
+              isConsistencyMode ? characterDescription : undefined,
+              imagePayloads
+          );
+          
+          setPrompt(newPrompt);
+          addLog('VideoAgent', 'Đã tự động tạo prompt video từ nội dung & ảnh tham chiếu.');
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setIsPromptLoading(false);
+      }
+  };
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files) return;
@@ -143,6 +175,12 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
     
     // Reset input to allow selecting same file again if needed
     if (fileInputRef.current) fileInputRef.current.value = '';
+    
+    // Trigger auto prompt if content exists
+    if (generatedContent) {
+        // Debounce slightly or just trigger (using timeout to let state settle)
+        setTimeout(() => handleAutoSmartPrompt(), 500);
+    }
   };
 
   const removeImage = (id: string) => {
@@ -189,9 +227,11 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
     setGeneratedVideoUrl('');
     setIsPreviewMode(isPreview);
     
-    // Construct Prompt with Character Description if enabled
+    // Construct Prompt with Character Description if enabled (and manually edited)
+    // Note: If Smart Prompt was used, it likely already includes this.
+    // We append only if it seems missing or user typed a manual prompt.
     let finalPrompt = prompt;
-    if (isConsistencyMode && characterDescription.trim()) {
+    if (isConsistencyMode && characterDescription.trim() && !prompt.includes('Character:')) {
         finalPrompt = `[Character: ${characterDescription.trim()}] ${prompt}`;
     }
 
@@ -282,6 +322,12 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
     document.body.removeChild(link);
     addLog('VideoAgent', 'Đã tải video xuống máy tính.');
   };
+
+  const MagicWandIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clipRule="evenodd" />
+    </svg>
+  );
 
   return (
     <Card title="Trợ lý Video (Veo 3.1)" icon={<VideoIcon />} className={isAutoGenerating ? 'ring-2 ring-red-500 shadow-lg shadow-red-500/20' : ''}>
@@ -482,23 +528,41 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
         </div>
         
         {/* Video Title Input */}
-        <input
-          type="text"
-          value={videoTitle}
-          onChange={(e) => setVideoTitle(e.target.value)}
-          placeholder="Tiêu đề video (Tùy chọn)..."
-          className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500 placeholder-gray-500 mb-1"
-          disabled={needsApiKeySelection || isAutoGenerating}
-        />
-
-        <input
-          type="text"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder={refImages.length > 0 ? "Mô tả hành động của nhân vật..." : "Nhập mô tả video..."}
-          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-          disabled={needsApiKeySelection || isAutoGenerating}
-        />
+        <div className="flex gap-2 items-center">
+            <input
+            type="text"
+            value={videoTitle}
+            onChange={(e) => setVideoTitle(e.target.value)}
+            placeholder="Tiêu đề video (Tùy chọn)..."
+            className="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500 placeholder-gray-500"
+            disabled={needsApiKeySelection || isAutoGenerating}
+            />
+        </div>
+        
+        <div className="relative">
+            <input
+            type="text"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder={refImages.length > 0 ? "Mô tả hành động của nhân vật..." : "Nhập mô tả video..."}
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 pr-8"
+            disabled={needsApiKeySelection || isAutoGenerating}
+            />
+            {generatedContent && (
+                <button
+                    onClick={handleAutoSmartPrompt}
+                    disabled={isPromptLoading || isAutoGenerating}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-yellow-400 hover:text-yellow-300 transition"
+                    title="Tự động tạo prompt video chi tiết từ Nội dung & Ảnh"
+                >
+                    {isPromptLoading ? (
+                         <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    ) : (
+                        <MagicWandIcon />
+                    )}
+                </button>
+            )}
+        </div>
 
         <div className={`flex gap-2 ${needsApiKeySelection ? 'opacity-50 pointer-events-none' : ''}`}>
             <button

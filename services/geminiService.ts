@@ -330,17 +330,43 @@ export const generateComment = async (
   }
 };
 
+// IMPROVED: Generate Thumbnail with 16:9 aspect ratio and visual optimization
 export const generateThumbnail = async (title: string, niche: string): Promise<string | null> => {
   try {
     const ai = getGenAIInstance();
-    // Prompt specifically for high CTR thumbnail style
-    const prompt = `YouTube thumbnail for video titled "${title}" in niche "${niche}". 
-    High contrast, vibrant colors, expressive facial expression if human present, clear text overlay potential. 
-    Style: Digital Art, 4K resolution, trending on ArtStation.`;
     
-    // Thumbnails usually need high quality
-    return await generateImage(prompt, true);
+    // Prompt specifically for high CTR thumbnail style
+    const prompt = `Create a YouTube/Facebook video thumbnail for a video titled "${title}". 
+    The niche is "${niche}".
+    Style: High contrast, vibrant colors, "Clickbait" style, professional digital art, hyper-realistic, 4k resolution. 
+    Make it visually striking to get clicks. 
+    No text inside the image (text will be added as overlay).`;
+    
+    // Thumbnails usually need high quality and 16:9 aspect ratio
+    const config: any = {
+       imageConfig: {
+          aspectRatio: "16:9", // Standard video cover format
+          imageSize: "2K" // Good balance
+       }
+    };
+    
+    const response: GenerateContentResponse = await retryOperation(async () => {
+      return await ai.models.generateContent({
+        model: 'gemini-3-pro-image-preview', // Use Pro model for best thumbnail results
+        contents: { parts: [{ text: prompt }] },
+        config: config, 
+      });
+    });
+
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        const base64ImageBytes: string = part.inlineData.data;
+        return `data:${part.inlineData.mimeType};base64,${base64ImageBytes}`;
+      }
+    }
+    return null;
   } catch (error) {
+    if (error instanceof ApiKeyError) throw error;
     console.error('Error generating thumbnail:', error);
     return null;
   }

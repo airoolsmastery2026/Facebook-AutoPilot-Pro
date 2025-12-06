@@ -11,6 +11,7 @@ import InteractionAgent from './agents/InteractionAgent';
 import GroupAgent from './agents/GroupAgent';
 import ActivityLogFeed from './ActivityLogFeed';
 import VideoAgent from './agents/VideoAgent';
+import ThumbnailAgent from './agents/ThumbnailAgent'; // New Import
 import AnalyticsAgent from './agents/AnalyticsAgent';
 import TrendAgent from './agents/TrendAgent';
 import InboxAgent from './agents/InboxAgent';
@@ -19,10 +20,11 @@ import InboxAgent from './agents/InboxAgent';
 import { 
     generateTrends, 
     generateText, 
-    generatePostTitle, // New import
+    generatePostTitle, 
     generateImagePromptFromContent, 
     generateImage,
     generateVideo,
+    generateThumbnail, // Ensure imported
     ImagePayload
 } from '../services/geminiService';
 
@@ -43,15 +45,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
     niche: 'Công nghệ AI',
     intervalMinutes: 60,
     isActive: false,
-    enableVideo: false // Default to false as it consumes more quota/time
+    enableVideo: false 
   });
   const [autoPilotPhase, setAutoPilotPhase] = useState<AutoPilotPhase>('IDLE');
 
   // --- Intermediate Data (The "Flow" between modules) ---
   const [generatedContent, setGeneratedContent] = useState<string>('');
-  const [generatedTitle, setGeneratedTitle] = useState<string>(''); // Store Title
+  const [generatedTitle, setGeneratedTitle] = useState<string>(''); 
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string>('');
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string>('');
+  const [generatedThumbnailUrl, setGeneratedThumbnailUrl] = useState<string>(''); // New state
   const [detectedTrend, setDetectedTrend] = useState<string>('');
   
   // Lifted state for manual overrides
@@ -86,21 +89,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
         setGeneratedImageUrl('');
         setGeneratedContent('');
         setGeneratedTitle('');
+        setGeneratedThumbnailUrl(''); // Reset thumbnail
 
         // 1. SCANNING TRENDS
         setAutoPilotPhase('SCANNING_TRENDS');
         addLog('AutoPilot', `Bắt đầu chu trình mới. Đang quét xu hướng về "${autoPilotConfig.niche}"...`);
         
         const trendResult = await generateTrends(autoPilotConfig.niche);
-        const topTrend = trendResult.text.split('\n')[0] || trendResult.text; // Take first line/trend
-        setDetectedTrend(trendResult.text); // Update TrendAgent UI
+        const topTrend = trendResult.text.split('\n')[0] || trendResult.text; 
+        setDetectedTrend(trendResult.text); 
         addLog('TrendAgent', `[Auto] Phát hiện xu hướng: ${topTrend.substring(0, 50)}...`);
 
         // 2. GENERATING CONTENT
         setAutoPilotPhase('GENERATING_CONTENT');
         const contentPrompt = `Write a short, engaging Facebook post about this trending topic: "${topTrend}". Use Vietnamese language.`;
         const content = await generateText(contentPrompt);
-        setGeneratedContent(content); // Update ContentAgent UI
+        setGeneratedContent(content); 
         
         // Generate Title Automatically
         const title = await generatePostTitle(content);
@@ -111,7 +115,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
         // 3. ANALYZING IMAGE
         setAutoPilotPhase('ANALYZING_IMAGE_PROMPT');
         const imgPrompt = await generateImagePromptFromContent(content);
-        setImagePrompt(imgPrompt); // Update ImageAgent UI
+        setImagePrompt(imgPrompt); 
         addLog('ImageAgent', `[Auto] Đã tạo prompt ảnh: ${imgPrompt.substring(0, 30)}...`);
 
         // 4. GENERATING IMAGE
@@ -120,7 +124,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
         let finalVideoUrl = '';
 
         if (imgUrl) {
-            setGeneratedImageUrl(imgUrl); // Update ImageAgent UI
+            setGeneratedImageUrl(imgUrl); 
             addLog('ImageAgent', `[Auto] Đã vẽ xong ảnh minh họa.`);
 
             // 5. GENERATING VIDEO (Optional Step)
@@ -129,7 +133,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
                 addLog('VideoAgent', `[Auto] Đang chuyển ảnh thành video (Veo 3.1)...`);
                 
                 try {
-                    // Extract base64 data from data URL
                     const base64Data = imgUrl.split(',')[1];
                     const mimeType = imgUrl.split(';')[0].split(':')[1];
 
@@ -138,8 +141,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
                         mimeType: mimeType
                     };
 
-                    // Generate Video using Content as prompt and Image as start frame
-                    // Wrap imagePayload in array [] as per new signature
                     finalVideoUrl = await generateVideo(
                         `Cinematic movement for: ${content.substring(0, 50)}`, 
                         [imagePayload], 
@@ -150,14 +151,31 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
                     addLog('VideoAgent', `[Auto] Đã tạo video thành công.`);
                 } catch (vidErr) {
                     addLog('VideoAgent', `[Auto] Lỗi tạo video: ${(vidErr as Error).message}`, 'Error');
-                    // Continue even if video fails, we still have the image
                 }
             }
         } else {
             addLog('ImageAgent', `[Auto] Lỗi tạo ảnh, sẽ đăng bài không ảnh.`, 'Error');
         }
 
-        // 6. SCHEDULING
+        // 6. GENERATING THUMBNAIL (New Step)
+        // Ensure we have a title to generate a thumbnail from. Even if video failed, a thumbnail is good for the post link.
+        setAutoPilotPhase('GENERATING_THUMBNAIL');
+        let finalThumbnailUrl = '';
+        if (title) {
+            addLog('ThumbnailAgent', `[Auto] Đang tạo Thumbnail cho bài đăng...`);
+            try {
+                const thumb = await generateThumbnail(title, autoPilotConfig.niche);
+                if (thumb) {
+                    finalThumbnailUrl = thumb;
+                    setGeneratedThumbnailUrl(thumb);
+                    addLog('ThumbnailAgent', `[Auto] Đã tạo Thumbnail thành công.`);
+                }
+            } catch (thumbErr) {
+                addLog('ThumbnailAgent', `[Auto] Lỗi tạo thumbnail: ${(thumbErr as Error).message}`, 'Error');
+            }
+        }
+
+        // 7. SCHEDULING
         setAutoPilotPhase('SCHEDULING');
         const newPost: ScheduledPost = {
             id: Date.now().toString(),
@@ -165,13 +183,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
             content: content,
             imageUrl: imgUrl || undefined,
             videoUrl: finalVideoUrl || undefined,
-            scheduledTime: new Date(Date.now() + 10 * 60000).toLocaleString(), // Schedule for 10 mins later
+            thumbnailUrl: finalThumbnailUrl || undefined, // Store thumbnail
+            scheduledTime: new Date(Date.now() + 10 * 60000).toLocaleString(), 
             status: 'Scheduled',
         };
         setPosts((prev) => [newPost, ...prev]);
         addLog('SchedulerAgent', `[Auto] Đã lên lịch đăng bài thành công!`);
 
-        // 7. COOLDOWN
+        // 8. COOLDOWN
         setAutoPilotPhase('COOLDOWN');
         const nextRunMs = autoPilotConfig.intervalMinutes * 60 * 1000;
         addLog('AutoPilot', `Hoàn tất chu trình. Nghỉ ${autoPilotConfig.intervalMinutes} phút.`);
@@ -183,19 +202,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
     } catch (error) {
         addLog('AutoPilot', `Lỗi nghiêm trọng trong chu trình: ${(error as Error).message}`, 'Error');
         setAutoPilotPhase('IDLE');
-        // Retry logic could go here, for now just stop or wait
     }
   }, [autoPilotConfig, addLog, setPosts]);
 
   // Effect to Start/Stop the cycle
   useEffect(() => {
     if (autoPilotConfig.isActive) {
-        // If just activated and idle, start immediately
         if (autoPilotPhase === 'IDLE') {
             runAutoPilotCycle();
         }
     } else {
-        // Stop everything
         if (autoPilotTimeoutRef.current) {
             clearTimeout(autoPilotTimeoutRef.current);
             autoPilotTimeoutRef.current = null;
@@ -254,24 +270,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           
-          {/* LEFT: Generation Pipeline (Trend -> Content -> Image -> Schedule) */}
+          {/* LEFT: Generation Pipeline */}
           <div className="lg:col-span-8 space-y-6">
             
             <TrendAgent 
                 onTrendSelected={handleTrendSelected} 
                 addLog={addLog} 
-                autoTrend={detectedTrend} // Pass auto-detected trend to UI
+                autoTrend={detectedTrend} 
             />
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
-                {/* Connecting Line for Visual Flow */}
                 <div className="hidden md:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0 w-8 h-1 bg-gray-700"></div>
 
                 <ContentAgent
                     onContentGenerated={handleContentUpdate}
                     addLog={addLog}
                     initialTopic={contentTopic}
-                    generatedContent={generatedContent} // Allow overriding state from AutoPilot
+                    generatedContent={generatedContent} 
                     isAutoGenerating={autoPilotPhase === 'GENERATING_CONTENT'}
                 />
                 
@@ -280,24 +295,36 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
                     addLog={addLog}
                     initialPrompt={imagePrompt}
                     generatedContent={generatedContent}
-                    generatedImage={generatedImageUrl} // Allow overriding state from AutoPilot
+                    generatedImage={generatedImageUrl} 
                     isAutoGenerating={autoPilotPhase === 'GENERATING_IMAGE' || autoPilotPhase === 'ANALYZING_IMAGE_PROMPT'}
                 />
             </div>
 
-            <VideoAgent 
-                addLog={addLog} 
-                generatedVideo={generatedVideoUrl}
-                isAutoGenerating={autoPilotPhase === 'GENERATING_VIDEO'}
-            />
+            {/* Video & Thumbnail Area */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <VideoAgent 
+                    addLog={addLog} 
+                    generatedVideo={generatedVideoUrl}
+                    generatedContent={generatedContent} // Passed down for smart prompting
+                    isAutoGenerating={autoPilotPhase === 'GENERATING_VIDEO'}
+                />
+                
+                <ThumbnailAgent 
+                    addLog={addLog}
+                    videoTitle={generatedTitle || 'New Video'}
+                    niche={autoPilotConfig.niche}
+                    onThumbnailGenerated={setGeneratedThumbnailUrl}
+                    isAutoGenerating={autoPilotPhase === 'GENERATING_THUMBNAIL'}
+                />
+            </div>
 
             <SchedulerAgent
                 posts={posts}
                 setPosts={setPosts}
                 content={generatedContent}
-                title={generatedTitle} // Pass title
+                title={generatedTitle} 
                 imageUrl={generatedImageUrl}
-                videoUrl={generatedVideoUrl} // Pass the video URL to scheduler preview
+                videoUrl={generatedVideoUrl} 
                 addLog={addLog}
                 isAutoMode={isAutoMode}
             />

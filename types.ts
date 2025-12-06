@@ -46,7 +46,7 @@ export type AutoPilotPhase =
   | 'GENERATING_CONTENT' 
   | 'ANALYZING_IMAGE_PROMPT' 
   | 'GENERATING_IMAGE' 
-  | 'GENERATING_VIDEO' // New phase
+  | 'GENERATING_VIDEO'
   | 'GENERATING_THUMBNAIL' // New phase
   | 'SCHEDULING' 
   | 'COOLDOWN';

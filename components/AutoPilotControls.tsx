@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect } from 'react';
-import Card from './Card';
 import type { AutoPilotConfig, AutoPilotPhase } from '../types';
 
 interface AutoPilotControlsProps {
@@ -16,6 +15,7 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
 }) => {
   const [nicheInput, setNicheInput] = useState(config.niche);
   const [intervalInput, setIntervalInput] = useState(config.intervalMinutes);
+  const [isSaved, setIsSaved] = useState(false);
 
   // Sync internal state if props change externally (e.g. from restore backup)
   useEffect(() => {
@@ -23,7 +23,22 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
     setIntervalInput(config.intervalMinutes);
   }, [config.niche, config.intervalMinutes]);
 
+  const handleSave = () => {
+    onUpdateConfig({
+      ...config,
+      niche: nicheInput,
+      intervalMinutes: intervalInput,
+    });
+    showSaveFeedback();
+  };
+
+  const showSaveFeedback = () => {
+    setIsSaved(true);
+    setTimeout(() => setIsSaved(false), 2000);
+  };
+
   const handleToggle = () => {
+    // Save current inputs before toggling
     onUpdateConfig({
       ...config,
       isActive: !config.isActive,
@@ -37,6 +52,7 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
           ...config,
           enableVideo: !config.enableVideo
       });
+      // No need to show save feedback for toggle as it's visual enough
   };
 
   const getPhaseLabel = (phase: AutoPilotPhase) => {
@@ -46,6 +62,7 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
       case 'ANALYZING_IMAGE_PROMPT': return '🧠 Đang phân tích ý tưởng ảnh...';
       case 'GENERATING_IMAGE': return '🎨 Đang vẽ minh họa...';
       case 'GENERATING_VIDEO': return '🎬 Đang tạo Video (Veo)...';
+      case 'GENERATING_THUMBNAIL': return '🖼️ Đang thiết kế Thumbnail...'; 
       case 'SCHEDULING': return '📅 Đang lên lịch đăng...';
       case 'COOLDOWN': return `⏳ Đang chờ lượt sau (${config.intervalMinutes}p)...`;
       default: return '💤 Hệ thống nghỉ';
@@ -56,9 +73,10 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
     switch (phase) {
         case 'SCANNING_TRENDS': return '15%';
         case 'GENERATING_CONTENT': return '30%';
-        case 'ANALYZING_IMAGE_PROMPT': return '45%';
-        case 'GENERATING_IMAGE': return '60%';
-        case 'GENERATING_VIDEO': return '80%';
+        case 'ANALYZING_IMAGE_PROMPT': return '40%';
+        case 'GENERATING_IMAGE': return '50%';
+        case 'GENERATING_VIDEO': return '70%';
+        case 'GENERATING_THUMBNAIL': return '85%';
         case 'SCHEDULING': return '100%';
         default: return '0%';
     }
@@ -85,7 +103,7 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
             )}
           </h2>
           <p className="text-gray-400 text-sm mt-1">
-            Hệ thống tự động: Tìm Trend ➔ Viết Bài ➔ Vẽ Ảnh ➔ {config.enableVideo ? 'Tạo Video ➔ ' : ''}Lên Lịch
+            Hệ thống tự động: Tìm Trend ➔ Viết Bài ➔ Vẽ Ảnh ➔ {config.enableVideo ? 'Tạo Video ➔ ' : ''}Thumbnail ➔ Lên Lịch
           </p>
         </div>
 
@@ -96,6 +114,7 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
                     type="text" 
                     value={nicheInput}
                     onChange={(e) => setNicheInput(e.target.value)}
+                    onBlur={handleSave} // Save on blur
                     disabled={config.isActive}
                     className="bg-transparent text-white font-medium focus:outline-none border-b border-gray-600 focus:border-blue-500 w-32"
                 />
@@ -108,6 +127,7 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
                     min={15}
                     value={intervalInput}
                     onChange={(e) => setIntervalInput(Number(e.target.value))}
+                    onBlur={handleSave} // Save on blur
                     disabled={config.isActive}
                     className="bg-transparent text-white font-medium focus:outline-none border-b border-gray-600 focus:border-blue-500 w-16"
                 />
@@ -126,9 +146,27 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
                     <div className="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-600"></div>
                 </label>
                 <span className={`text-[10px] font-bold ${config.enableVideo ? 'text-red-400' : 'text-gray-500'}`}>
-                    VIDEO (Veo)
+                    VIDEO
                 </span>
             </div>
+
+            {/* Explicit Save Button */}
+            <button
+                onClick={handleSave}
+                className="p-2 text-gray-400 hover:text-green-400 transition"
+                title="Lưu cấu hình (Save Config)"
+                disabled={config.isActive}
+            >
+                {isSaved ? (
+                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                    </svg>
+                )}
+            </button>
 
             <button
                 onClick={handleToggle}
