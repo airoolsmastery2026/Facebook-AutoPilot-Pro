@@ -12,9 +12,11 @@ interface InteractionAgentProps {
 const InteractionAgent: React.FC<InteractionAgentProps> = ({ addLog }) => {
   const [isActive, setIsActive] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [interactionType, setInteractionType] = useLocalStorage<
-    'like' | 'comment'
-  >('interaction-type', 'like');
+  
+  // Replaced single interactionType with two independent toggles
+  const [enableLikes, setEnableLikes] = useLocalStorage<boolean>('enable-likes', true);
+  const [enableComments, setEnableComments] = useLocalStorage<boolean>('enable-comments', false);
+
   const [interests, setInterests] = useLocalStorage<string>(
     'user-interests',
     'AI, công nghệ, khởi nghiệp, công nghệ mới nhất, xu hướng AI',
@@ -33,16 +35,25 @@ const InteractionAgent: React.FC<InteractionAgentProps> = ({ addLog }) => {
         .split(',')
         .map((i) => i.trim())
         .filter(Boolean);
+
       if (allInterests.length === 0) {
         addLog('InteractionAgent', 'Vui lòng đặt sở thích để bắt đầu.', 'Error');
         setIsActive(false);
         return;
       }
+
+      if (!enableLikes && !enableComments) {
+        addLog('InteractionAgent', 'Vui lòng chọn ít nhất một loại tương tác (Like hoặc Bình luận).', 'Error');
+        setIsActive(false);
+        return;
+      }
+
       const randomInterest =
         allInterests[Math.floor(Math.random() * allInterests.length)];
       const engagement = ['cao', 'trung bình', 'lan truyền'][
         Math.floor(Math.random() * 3)
       ];
+      
       addLog(
         'InteractionAgent',
         `Đã tìm thấy bài đăng về "${randomInterest}" với mức tương tác ${engagement}.`,
@@ -50,38 +61,43 @@ const InteractionAgent: React.FC<InteractionAgentProps> = ({ addLog }) => {
 
       setIsProcessing(true);
 
-      if (interactionType === 'like') {
-        await new Promise((res) => setTimeout(res, 1000)); // Simulate time to "like"
-        
-        // Randomize emotional reactions
-        const reactions = ['Thích', 'Yêu thích', 'Thương thương', 'Wow'];
-        const randomReaction = reactions[Math.floor(Math.random() * reactions.length)];
-        
-        addLog('InteractionAgent', `Đã bày tỏ cảm xúc "${randomReaction}" cho bài đăng về "${randomInterest}"`);
-      } else {
-        if (!exampleComments.trim()) {
-          addLog(
-            'InteractionAgent',
-            'Thêm bình luận mẫu để tạo bình luận.',
-            'Error',
-          );
-        } else {
-          const comment = await generateComment(
-            randomInterest,
-            interests,
-            exampleComments,
-          );
-          if (comment.startsWith('Error:')) {
-            addLog('InteractionAgent', comment, 'Error');
+      try {
+        // Handle Likes/Reactions
+        if (enableLikes) {
+          await new Promise((res) => setTimeout(res, 1000)); // Simulate reading time
+          const reactions = ['Thích', 'Yêu thích', 'Thương thương', 'Wow'];
+          const randomReaction = reactions[Math.floor(Math.random() * reactions.length)];
+          addLog('InteractionAgent', `Đã bày tỏ cảm xúc "${randomReaction}" cho bài đăng.`);
+        }
+
+        // Handle Comments
+        if (enableComments) {
+          if (!exampleComments.trim()) {
+            addLog('InteractionAgent', 'Bỏ qua bình luận: Chưa thiết lập bình luận mẫu.', 'Error');
           } else {
-            addLog('InteractionAgent', `Đã bình luận: "${comment}"`);
+            // Add a small delay if we also liked the post
+            if (enableLikes) await new Promise((res) => setTimeout(res, 1500));
+
+            const comment = await generateComment(
+              randomInterest,
+              interests,
+              exampleComments,
+            );
+            
+            if (comment.startsWith('Error:')) {
+              addLog('InteractionAgent', comment, 'Error');
+            } else {
+              addLog('InteractionAgent', `Đã bình luận: "${comment}"`);
+            }
           }
         }
+      } catch (error) {
+        addLog('InteractionAgent', 'Gặp lỗi trong quá trình tương tác.', 'Error');
       }
 
       setIsProcessing(false);
 
-      // Schedule next run with a more natural, random delay (5-15 seconds)
+      // Schedule next run with a random delay (5-15 seconds)
       const randomDelay = Math.random() * 10000 + 5000; 
       timeoutRef.current = window.setTimeout(runAgent, randomDelay);
     };
@@ -117,7 +133,7 @@ const InteractionAgent: React.FC<InteractionAgentProps> = ({ addLog }) => {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-400">
-            Tự động tương tác với các bài đăng dựa trên sở thích của bạn.
+            Tự động tương tác (Like, Comment) với các bài đăng theo sở thích.
           </p>
           <div className="flex items-center space-x-2 mt-2">
             <div
@@ -169,56 +185,49 @@ const InteractionAgent: React.FC<InteractionAgentProps> = ({ addLog }) => {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-1">
-            Loại tương tác
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            Cấu hình hành động
           </label>
-          <div className="flex space-x-4">
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input
-                type="radio"
-                name="interactionType"
-                value="like"
-                checked={interactionType === 'like'}
-                onChange={() => setInteractionType('like')}
-                disabled={isDisabled}
-                className="form-radio bg-gray-700 border-gray-600 text-pink-500 focus:ring-pink-500 disabled:opacity-50"
-              />
-              <span
-                className={`text-sm ${
-                  isDisabled ? 'text-gray-500' : 'text-gray-300'
-                }`}
-              >
-                Cảm xúc (Like/Love/Wow)
-              </span>
-            </label>
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input
-                type="radio"
-                name="interactionType"
-                value="comment"
-                checked={interactionType === 'comment'}
-                onChange={() => setInteractionType('comment')}
-                disabled={isDisabled}
-                className="form-radio bg-gray-700 border-gray-600 text-pink-500 focus:ring-pink-500 disabled:opacity-50"
-              />
-              <span
-                className={`text-sm ${
-                  isDisabled ? 'text-gray-500' : 'text-gray-300'
-                }`}
-              >
-                Bình luận (AI)
-              </span>
-            </label>
+          <div className="flex flex-col space-y-2">
+            {/* Toggle Like */}
+            <div className="flex items-center justify-between bg-gray-800/50 p-2 rounded-md border border-gray-700">
+              <span className="text-sm text-gray-300">Tự động Thả cảm xúc</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={enableLikes}
+                  onChange={(e) => setEnableLikes(e.target.checked)}
+                  disabled={isDisabled}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-pink-600"></div>
+              </label>
+            </div>
+
+            {/* Toggle Comment */}
+            <div className="flex items-center justify-between bg-gray-800/50 p-2 rounded-md border border-gray-700">
+              <span className="text-sm text-gray-300">Tự động Bình luận (AI)</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={enableComments}
+                  onChange={(e) => setEnableComments(e.target.checked)}
+                  disabled={isDisabled}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
           </div>
         </div>
 
-        {interactionType === 'comment' && (
-          <div>
+        {enableComments && (
+          <div className="animate-fade-in">
             <label
               htmlFor="exampleComments"
               className="block text-sm font-medium text-gray-300 mb-1"
             >
-              Bình luận mẫu (mỗi dòng một bình luận)
+              Bình luận mẫu (để AI học phong cách)
             </label>
             <textarea
               id="exampleComments"
@@ -229,6 +238,9 @@ const InteractionAgent: React.FC<InteractionAgentProps> = ({ addLog }) => {
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
               placeholder="Bài viết tuyệt vời!&#10;Quan điểm thú vị.&#10;Cảm ơn đã chia sẻ!"
             />
+            <p className="text-xs text-gray-500 mt-1">
+              AI sẽ tạo bình luận mới dựa trên các mẫu này và chủ đề bài viết.
+            </p>
           </div>
         )}
       </div>
