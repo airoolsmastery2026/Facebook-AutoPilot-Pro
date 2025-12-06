@@ -8,129 +8,110 @@ import type { UserProfile, FacebookAccount } from './types';
 import { getProfile } from './services/facebookService';
 
 const App: React.FC = () => {
-  const [accessToken, setAccessToken] = useLocalStorage<string | null>(
-    'fb-access-token',
-    null,
-  );
-  // Also store account history to auto-save successful logins
+  // App Authentication State
+  const [currentAppUser, setCurrentAppUser] = useLocalStorage<string | null>('current_app_user', null);
+
+  // Facebook Data State
+  const [accessToken, setAccessToken] = useLocalStorage<string | null>('fb-access-token', null);
   const [savedAccounts, setSavedAccounts] = useLocalStorage<FacebookAccount[]>('fb-accounts', []);
   
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  const handleLogin = useCallback(
-    async (token: string, newApiKey?: string) => {
-      setIsLoading(true);
-      setError(null);
-      
-      // Save API Key if provided during login
-      if (newApiKey) {
-         window.localStorage.setItem('gemini-api-key', newApiKey);
-      }
-
-      try {
-        const userProfile = await getProfile(token);
-        // Attach token to profile for context
-        userProfile.accessToken = token;
-        
-        setUser(userProfile);
-        setAccessToken(token);
-
-        // Auto-save this account to the list if not exists
-        setSavedAccounts(prev => {
-          if (!prev.some(acc => acc.id === userProfile.id)) {
-            return [{
-              id: userProfile.id,
-              name: userProfile.name,
-              pictureUrl: userProfile.pictureUrl,
-              accessToken: token
-            }, ...prev];
-          }
-          // Update token if it changed
-          return prev.map(acc => acc.id === userProfile.id ? { ...acc, accessToken: token } : acc);
-        });
-
-      } catch (err) {
-        setError((err as Error).message);
-        setAccessToken(null);
-        setUser(null);
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [setAccessToken, setSavedAccounts],
-  );
+  // --- 1. App Login Handling (Username/Password) ---
+  const handleAppLogin = (username: string) => {
+    setCurrentAppUser(username);
+    // After app login, we verify if there is a valid FB token saved
+    loadFacebookProfile(accessToken); 
+  };
 
   const handleLogout = useCallback(() => {
-    setAccessToken(null);
+    setCurrentAppUser(null);
     setUser(null);
-  }, [setAccessToken]);
+    // Note: We do NOT clear the accessToken or savedAccounts here, 
+    // so they persist for the next login (as requested "saved once").
+  }, [setCurrentAppUser]);
 
+  // --- 2. Facebook Profile Loading ---
+  const loadFacebookProfile = useCallback(async (token: string | null) => {
+    if (!token) {
+        setUser(null);
+        return;
+    }
+
+    setIsLoading(true);
+    try {
+        const userProfile = await getProfile(token);
+        userProfile.accessToken = token;
+        setUser(userProfile);
+        
+        // Auto-save account context
+        setSavedAccounts(prev => {
+             if (!prev.some(acc => acc.id === userProfile.id)) {
+                return [{
+                  id: userProfile.id,
+                  name: userProfile.name,
+                  pictureUrl: userProfile.pictureUrl,
+                  accessToken: token
+                }, ...prev];
+              }
+              return prev.map(acc => acc.id === userProfile.id ? { ...acc, accessToken: token } : acc);
+        });
+
+    } catch (err) {
+        // If token is invalid, we just don't set the user, but we stay logged in to the App
+        console.error("Failed to load FB profile:", err);
+        setUser(null);
+        // Optional: setAccessToken(null); if we want to force re-entry
+    } finally {
+        setIsLoading(false);
+    }
+  }, [setSavedAccounts]);
+
+  // Initial Load & Watch for Token Changes
   useEffect(() => {
-    const validateToken = async () => {
-      if (accessToken) {
-        await handleLogin(accessToken);
-      }
-      setIsLoading(false);
-    };
-    validateToken();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (currentAppUser) {
+        loadFacebookProfile(accessToken);
+    }
+  }, [currentAppUser, accessToken, loadFacebookProfile]);
 
-  if (isLoading && !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white">
-        <div className="flex flex-col items-center">
-          <svg
-            className="animate-spin h-10 w-10 text-blue-500 mb-4"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            ></circle>
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            ></path>
-          </svg>
-          <p className="text-lg">Đang khởi tạo AutoPilot Pro...</p>
-        </div>
-      </div>
-    );
+  // Handle Account Switching from Settings
+  const handleSwitchAccount = (newToken: string) => {
+      setAccessToken(newToken); // This triggers the useEffect above to reload profile
+  };
+
+  // --- Render ---
+
+  // If not logged in to the App, show Login Screen
+  if (!currentAppUser) {
+      return <Login onLogin={handleAppLogin} isLoading={isLoading} error={error} />;
   }
+
+  // If logged in, show Dashboard
+  // Note: 'user' might be null if FB token is missing/invalid. 
+  // We create a "Guest" profile object in that case so Dashboard handles it gracefully.
+  const displayUser = user || {
+      id: 'guest',
+      name: 'Chưa kết nối FB',
+      pictureUrl: 'https://via.placeholder.com/150?text=Guest',
+      accessToken: ''
+  };
 
   return (
     <div className="min-h-screen bg-gray-900 font-sans">
-      {user && accessToken ? (
-        <Dashboard 
-          user={user} 
+      <Dashboard 
+          user={displayUser} 
           onLogout={handleLogout} 
           onOpenSettings={() => setIsSettingsOpen(true)}
-        />
-      ) : (
-        <Login onLogin={handleLogin} isLoading={isLoading} error={error} />
-      )}
+      />
 
-      {/* Settings Modal is available at app level */}
       <SettingsModal 
         isOpen={isSettingsOpen} 
         onClose={() => setIsSettingsOpen(false)}
         currentUserToken={accessToken}
-        onSwitchAccount={(token) => {
-          handleLogin(token);
-          // Optional: Close modal on switch
-          // setIsSettingsOpen(false); 
-        }}
+        onSwitchAccount={handleSwitchAccount}
         accounts={savedAccounts}
         onUpdateAccounts={setSavedAccounts}
       />

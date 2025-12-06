@@ -64,6 +64,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
   // Refs for loop management
   const autoPilotTimeoutRef = useRef<number | null>(null);
 
+  // --- CHECK IF USER IS CONFIGURED ---
+  const isGuest = user.id === 'guest';
+
   const addLog = useCallback((
     agent: string,
     action: string,
@@ -82,6 +85,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
   // --- MASTER ORCHESTRATOR: THE BRAIN ---
   const runAutoPilotCycle = useCallback(async () => {
     if (!autoPilotConfig.isActive) return;
+    if (isGuest) {
+        addLog('AutoPilot', 'Vui lòng kết nối tài khoản Facebook trong Cài đặt để chạy AutoPilot.', 'Error');
+        setAutoPilotConfig(prev => ({ ...prev, isActive: false }));
+        return;
+    }
 
     try {
         // Reset per-cycle states
@@ -203,7 +211,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
         addLog('AutoPilot', `Lỗi nghiêm trọng trong chu trình: ${(error as Error).message}`, 'Error');
         setAutoPilotPhase('IDLE');
     }
-  }, [autoPilotConfig, addLog, setPosts]);
+  }, [autoPilotConfig, addLog, setPosts, isGuest]);
 
   // Effect to Start/Stop the cycle
   useEffect(() => {
@@ -261,6 +269,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
       
       <main className="p-4 sm:p-6 lg:p-8 max-w-8xl mx-auto">
         
+        {/* Warning for Guest User */}
+        {isGuest && (
+            <div className="bg-yellow-900/50 border border-yellow-600 rounded-lg p-4 mb-6 flex justify-between items-center animate-fade-in shadow-lg">
+                <div className="flex items-center gap-3">
+                    <span className="text-2xl">⚠️</span>
+                    <div>
+                        <h3 className="font-bold text-yellow-300">Cấu hình chưa hoàn tất</h3>
+                        <p className="text-sm text-yellow-100">Vui lòng vào <b>Cài đặt (biểu tượng bánh răng)</b> để nhập <b>Token Facebook</b> và <b>Gemini API Key</b> để sử dụng các tính năng.</p>
+                    </div>
+                </div>
+                <button 
+                    onClick={onOpenSettings}
+                    className="bg-yellow-600 hover:bg-yellow-500 text-black font-bold py-2 px-4 rounded shadow-md transition"
+                >
+                    Mở Cài đặt ngay
+                </button>
+            </div>
+        )}
+
         {/* TOP: Auto-Pilot Control Center */}
         <AutoPilotControls 
             config={autoPilotConfig} 

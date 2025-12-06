@@ -13,6 +13,12 @@ export interface FacebookAccount {
   accessToken: string;
 }
 
+// New interface for App Login (Username/Password)
+export interface AppCredentials {
+  username: string;
+  password: string; // In a real app, never store plain text passwords!
+}
+
 export interface ScheduledPost {
   id: string;
   title?: string; // Added title field
