@@ -38,27 +38,59 @@ const getGenAIInstance = (): GoogleGenAI => {
   return new GoogleGenAI({ apiKey });
 };
 
-// Helper for retries with exponential backoff
+// Helper for retries with exponential backoff and smart delay parsing
 const retryOperation = async <T>(
   operation: () => Promise<T>,
-  retries: number = 3,
-  delay: number = 2000
+  retries: number = 5, // Increased retries for rate limits
+  delay: number = 5000 // Increased base delay
 ): Promise<T> => {
   try {
     return await operation();
   } catch (error: any) {
+    let errorMessage = error.message || '';
+
+    // Attempt to parse stringified JSON error message to get the inner details
+    if (typeof errorMessage === 'string' && errorMessage.trim().startsWith('{')) {
+        try {
+            const parsed = JSON.parse(errorMessage);
+            if (parsed.error && parsed.error.message) {
+                errorMessage = parsed.error.message;
+            }
+        } catch (e) {
+            // Ignore parse error, use original string
+        }
+    }
+
     const isRateLimit =
       error?.status === 429 ||
       error?.code === 429 ||
-      (error?.message && error.message.includes('429')) ||
-      (error?.statusText && error.statusText.includes('Too Many Requests')) ||
+      errorMessage.includes('429') ||
+      errorMessage.includes('Too Many Requests') ||
       error?.status === 'RESOURCE_EXHAUSTED' ||
-      (error?.message && error.message.includes('RESOURCE_EXHAUSTED'));
+      errorMessage.includes('RESOURCE_EXHAUSTED') ||
+      errorMessage.includes('quota');
 
     if (isRateLimit && retries > 0) {
-      console.warn(`Rate limit exceeded. Retrying in ${delay}ms...`, error.message);
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      return retryOperation(operation, retries - 1, delay * 2);
+      let waitTime = delay;
+
+      // Smart Retry: Extract "Please retry in X s" from the error message
+      const match = errorMessage.match(/retry in (\d+(\.\d+)?)s/);
+      if (match) {
+        // Parse seconds to ms and add 1s buffer
+        const secondsToWait = parseFloat(match[1]);
+        waitTime = Math.ceil(secondsToWait * 1000) + 1000;
+        console.warn(`Rate limit hit. API requested wait. Sleeping for ${waitTime}ms.`);
+      } else {
+        console.warn(`Rate limit hit. Retrying in ${waitTime}ms... (${retries} attempts left)`);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
+      
+      // If we found a specific time, use standard exponential backoff for the NEXT try relative to base delay
+      // Otherwise double the current delay
+      const nextDelay = match ? delay * 2 : delay * 1.5;
+      
+      return retryOperation(operation, retries - 1, nextDelay);
     }
     throw error;
   }
@@ -148,17 +180,22 @@ export const generateImage = async (
     const ai = getGenAIInstance();
     
     // Select model based on quality preference
-    // 'gemini-2.5-flash-image' (Nano Banana) for speed/standard
-    // 'gemini-3-pro-image-preview' for high quality
     const modelName = useHighQuality ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
 
     const config: any = {};
     if (useHighQuality) {
-        // High quality model supports specific image sizing
+        // High quality model supports specific image sizing: 1K, 2K, 4K
         config.imageConfig = {
             aspectRatio: "1:1",
-            imageSize: "1K"
+            imageSize: "4K" // Upgrade to highest resolution
         };
+        // Add Safety Settings to prevent generic blocks on creative prompts
+        config.safetySettings = [
+          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+        ];
     }
 
     const response: GenerateContentResponse = await retryOperation(async () => {
@@ -200,7 +237,7 @@ export interface VideoConfig {
 
 export const generateVideo = async (
   prompt: string,
-  image: ImagePayload | null = null,
+  images: ImagePayload[] = [], // Changed to array to support multiple reference images
   config: VideoConfig = {
     model: 'veo-3.1-fast-generate-preview',
     resolution: '720p',
@@ -208,8 +245,9 @@ export const generateVideo = async (
   }
 ): Promise<string> => {
   try {
-    const ai = getGenAIInstance(); // Get fresh instance with latest API key
+    const ai = getGenAIInstance();
 
+    // Determine payload structure based on input images
     const payload: any = {
       model: config.model,
       prompt,
@@ -220,20 +258,36 @@ export const generateVideo = async (
       },
     };
 
-    if (image) {
-      payload.image = {
-        imageBytes: image.imageBytes,
-        mimeType: image.mimeType,
-      };
+    // Case 1: Multiple Images (Character Consistency / Asset Reference)
+    if (images.length > 1) {
+       // CONSTRAINT: Multiple reference images REQUIRE 'veo-3.1-generate-preview', '720p', and '16:9'
+       payload.model = 'veo-3.1-generate-preview';
+       payload.config.resolution = '720p';
+       payload.config.aspectRatio = '16:9';
+       
+       const referenceImagesPayload = images.slice(0, 3).map(img => ({
+          image: {
+            imageBytes: img.imageBytes,
+            mimeType: img.mimeType
+          },
+          referenceType: 'ASSET' // This tells the model these are consistent assets/characters
+       }));
+       
+       payload.config.referenceImages = referenceImagesPayload;
+    } 
+    // Case 2: Single Image (Standard Image-to-Video Start Frame)
+    else if (images.length === 1) {
+        payload.image = {
+            imageBytes: images[0].imageBytes,
+            mimeType: images[0].mimeType,
+        };
     }
 
-    // Wrap the initial generation request in retry
     let operation: VideosOperation | GetVideosOperationResponse =
       await retryOperation(async () => await ai.models.generateVideos(payload));
 
     while (!operation.done) {
       await new Promise((resolve) => setTimeout(resolve, 10000));
-      // Wrap the polling request in retry as well
       operation = await retryOperation(async () => 
         await ai.operations.getVideosOperation({
           operation: operation as VideosOperation,
@@ -267,10 +321,10 @@ export const generateVideo = async (
     const response = await fetch(`${downloadLink}&key=${apiKey}`);
     if (!response.ok) {
       const errorBody = await response.text();
-      // Check for specific 404 error from the fetch response
-      if (response.status === 404 && errorBody.includes("Requested entity was not found.")) {
+      // Broad check for 404/Not Found in fetch
+      if (response.status === 404 || errorBody.includes("Requested entity was not found")) {
         throw new ApiKeyError(
-          'Khóa API được chọn có thể không hợp lệ hoặc không liên kết với dự án tính phí. Vui lòng kiểm tra lại.',
+          'Lỗi tải video (404): Không tìm thấy tài nguyên. Có thể Khóa API của bạn không hợp lệ hoặc không có quyền truy cập dự án trả phí.',
           'NOT_FOUND_404'
         );
       }
@@ -282,33 +336,48 @@ export const generateVideo = async (
     if (error instanceof ApiKeyError) {
       throw error;
     }
-    // Check if the original error object from ai.models.generateVideos contains a 404 message
-    let errorMessage = (error as Error).message;
-    if (typeof errorMessage === 'string' && errorMessage.startsWith('{') && errorMessage.endsWith('}')) {
-      try {
-        const parsedError = JSON.parse(errorMessage);
-        if (parsedError.error?.code === 404 && parsedError.error?.message === "Requested entity was not found.") {
-          throw new ApiKeyError(
-             'Khóa API được chọn có thể không hợp lệ hoặc không liên kết với dự án tính phí. Vui lòng kiểm tra lại.',
-            'NOT_FOUND_404'
-          );
+    
+    // Improved error parsing
+    let errorMessage = (error as any).message || String(error);
+    
+    // Try to extract nested JSON message from API error strings
+    if (typeof errorMessage === 'string' && errorMessage.includes('{')) {
+        try {
+            const jsonMatch = errorMessage.match(/\{.*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (parsed.error && parsed.error.message) {
+                    errorMessage = parsed.error.message;
+                }
+            }
+        } catch (e) {
+            // parsing failed, stick to original string
         }
-      } catch (parseError) {
-        // Not a JSON error string, proceed with original message
-      }
-    } else if ((error as any)?.error?.code === 404 && (error as any)?.error?.message === "Requested entity was not found.") {
-      // This path is for direct error objects from the SDK
-      throw new ApiKeyError(
-         'Khóa API được chọn có thể không hợp lệ hoặc không liên kết với dự án tính phí. Vui lòng kiểm tra lại.',
-        'NOT_FOUND_404'
-      );
     }
+
+    // Specific check for "Requested entity was not found" (404) which usually means Billing/Project issue for Veo
+    if (
+        errorMessage.includes('Requested entity was not found') || 
+        (errorMessage.includes('404') && errorMessage.includes('NOT_FOUND'))
+    ) {
+         throw new ApiKeyError(
+            'Lỗi Model Veo (404): Không tìm thấy thực thể yêu cầu. Nguyên nhân phổ biến: API Key chưa được liên kết với Dự án Google Cloud có bật Thanh toán (Billing) hoặc model chưa được kích hoạt cho dự án này.',
+            'NOT_FOUND_404'
+         );
+    }
+
+    // Check for Permission/Invalid Key issues
+    if (errorMessage.includes('API_KEY_INVALID') || errorMessage.includes('PERMISSION_DENIED')) {
+         throw new ApiKeyError(
+            'Lỗi Quyền (403): API Key không hợp lệ hoặc không có quyền truy cập model Veo. Vui lòng kiểm tra lại.',
+            'NOT_FOUND_404'
+         );
+    }
+    
     console.error('Error generating video with Gemini:', error);
     throw error;
   }
 };
-
-// --- NEW FEATURES ---
 
 export interface TrendResult {
   text: string;
@@ -318,7 +387,6 @@ export interface TrendResult {
 export const generateTrends = async (niche: string): Promise<TrendResult> => {
   try {
     const ai = getGenAIInstance();
-    // Using gemini-2.5-flash with googleSearch tool for real-time grounding
     const response: GenerateContentResponse = await retryOperation(async () => {
       return await ai.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -331,7 +399,6 @@ export const generateTrends = async (niche: string): Promise<TrendResult> => {
 
     const text = response.text || 'Không tìm thấy xu hướng.';
     
-    // Extract URLs from grounding metadata
     const urls: string[] = [];
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     chunks.forEach((chunk: any) => {

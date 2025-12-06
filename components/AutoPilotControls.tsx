@@ -32,12 +32,20 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
     });
   };
 
+  const toggleVideo = () => {
+      onUpdateConfig({
+          ...config,
+          enableVideo: !config.enableVideo
+      });
+  };
+
   const getPhaseLabel = (phase: AutoPilotPhase) => {
     switch (phase) {
       case 'SCANNING_TRENDS': return '📡 Đang quét Trend Google...';
       case 'GENERATING_CONTENT': return '✍️ Đang viết bài...';
       case 'ANALYZING_IMAGE_PROMPT': return '🧠 Đang phân tích ý tưởng ảnh...';
       case 'GENERATING_IMAGE': return '🎨 Đang vẽ minh họa...';
+      case 'GENERATING_VIDEO': return '🎬 Đang tạo Video (Veo)...';
       case 'SCHEDULING': return '📅 Đang lên lịch đăng...';
       case 'COOLDOWN': return `⏳ Đang chờ lượt sau (${config.intervalMinutes}p)...`;
       default: return '💤 Hệ thống nghỉ';
@@ -46,10 +54,11 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
 
   const getProgressBarWidth = (phase: AutoPilotPhase) => {
     switch (phase) {
-        case 'SCANNING_TRENDS': return '20%';
-        case 'GENERATING_CONTENT': return '40%';
-        case 'ANALYZING_IMAGE_PROMPT': return '60%';
-        case 'GENERATING_IMAGE': return '80%';
+        case 'SCANNING_TRENDS': return '15%';
+        case 'GENERATING_CONTENT': return '30%';
+        case 'ANALYZING_IMAGE_PROMPT': return '45%';
+        case 'GENERATING_IMAGE': return '60%';
+        case 'GENERATING_VIDEO': return '80%';
         case 'SCHEDULING': return '100%';
         default: return '0%';
     }
@@ -76,11 +85,11 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
             )}
           </h2>
           <p className="text-gray-400 text-sm mt-1">
-            Hệ thống tự động: Tìm Trend ➔ Viết Bài ➔ Vẽ Ảnh ➔ Lên Lịch
+            Hệ thống tự động: Tìm Trend ➔ Viết Bài ➔ Vẽ Ảnh ➔ {config.enableVideo ? 'Tạo Video ➔ ' : ''}Lên Lịch
           </p>
         </div>
 
-        <div className="flex items-center gap-4 bg-gray-800/80 p-2 rounded-lg border border-gray-700">
+        <div className="flex flex-col sm:flex-row items-center gap-4 bg-gray-800/80 p-2 rounded-lg border border-gray-700">
             <div className="flex flex-col">
                 <label className="text-[10px] uppercase text-gray-500 font-bold">Chủ đề (Niche)</label>
                 <input 
@@ -91,7 +100,7 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
                     className="bg-transparent text-white font-medium focus:outline-none border-b border-gray-600 focus:border-blue-500 w-32"
                 />
             </div>
-            <div className="w-px h-8 bg-gray-700"></div>
+            <div className="w-px h-8 bg-gray-700 hidden sm:block"></div>
             <div className="flex flex-col">
                 <label className="text-[10px] uppercase text-gray-500 font-bold">Tần suất (Phút)</label>
                 <input 
@@ -103,6 +112,24 @@ const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
                     className="bg-transparent text-white font-medium focus:outline-none border-b border-gray-600 focus:border-blue-500 w-16"
                 />
             </div>
+            
+            {/* Enable Video Toggle */}
+             <div className="flex items-center gap-2 px-2 border-l border-gray-700">
+                <label className="relative inline-flex items-center cursor-pointer">
+                    <input 
+                        type="checkbox" 
+                        checked={config.enableVideo}
+                        onChange={toggleVideo}
+                        disabled={config.isActive}
+                        className="sr-only peer" 
+                    />
+                    <div className="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-600"></div>
+                </label>
+                <span className={`text-[10px] font-bold ${config.enableVideo ? 'text-red-400' : 'text-gray-500'}`}>
+                    VIDEO (Veo)
+                </span>
+            </div>
+
             <button
                 onClick={handleToggle}
                 className={`ml-2 px-6 py-3 rounded-lg font-bold shadow-lg transition-all transform hover:scale-105 ${

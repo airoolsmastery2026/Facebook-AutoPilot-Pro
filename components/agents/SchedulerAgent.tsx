@@ -11,6 +11,7 @@ interface SchedulerAgentProps {
   ) => void;
   content: string;
   imageUrl: string;
+  videoUrl?: string; // Add video support
   addLog: (agent: string, action: string) => void;
   isAutoMode: boolean;
 }
@@ -38,6 +39,7 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
   setPosts,
   content,
   imageUrl,
+  videoUrl,
   addLog,
   isAutoMode,
 }) => {
@@ -96,7 +98,8 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
     const newPost: ScheduledPost = {
       id: Date.now().toString(),
       content: content.substring(0, 100) + (content.length > 100 ? '...' : ''),
-      imageUrl,
+      imageUrl: imageUrl || undefined,
+      videoUrl: videoUrl || undefined,
       scheduledTime: new Date(scheduleTime).toLocaleString(),
       status: 'Scheduled',
     };
@@ -220,13 +223,23 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
                   className="bg-gray-700/50 p-3 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                 >
                   <div className="flex items-start sm:items-center space-x-3 flex-1 min-w-0">
-                    {post.imageUrl && (
-                      <img
-                        src={post.imageUrl}
-                        alt="Post preview"
-                        className="w-10 h-10 rounded-md object-cover flex-shrink-0"
-                      />
-                    )}
+                    <div className="relative">
+                        {post.imageUrl ? (
+                            <img
+                                src={post.imageUrl}
+                                alt="Post preview"
+                                className="w-10 h-10 rounded-md object-cover flex-shrink-0"
+                            />
+                        ) : post.videoUrl ? (
+                            <div className="w-10 h-10 rounded-md bg-black flex items-center justify-center border border-gray-600">
+                                <span className="text-xs">Video</span>
+                            </div>
+                        ) : null}
+                        {post.videoUrl && post.imageUrl && (
+                            <div className="absolute -bottom-1 -right-1 bg-red-600 text-[8px] px-1 rounded text-white font-bold">VID</div>
+                        )}
+                    </div>
+
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-gray-300 truncate" title={post.content}>
                         {post.content}

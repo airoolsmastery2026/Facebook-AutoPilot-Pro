@@ -17,6 +17,7 @@ export interface ScheduledPost {
   id: string;
   content: string;
   imageUrl?: string;
+  videoUrl?: string; // Added support for Video
   scheduledTime: string;
   status: 'Scheduled' | 'Posted' | 'Failed';
 }
@@ -33,10 +34,19 @@ export interface AutoPilotConfig {
   niche: string;
   intervalMinutes: number;
   isActive: boolean;
+  enableVideo: boolean; // Toggle to include video generation in the loop
   lastRun?: string;
 }
 
-export type AutoPilotPhase = 'IDLE' | 'SCANNING_TRENDS' | 'GENERATING_CONTENT' | 'ANALYZING_IMAGE_PROMPT' | 'GENERATING_IMAGE' | 'SCHEDULING' | 'COOLDOWN';
+export type AutoPilotPhase = 
+  | 'IDLE' 
+  | 'SCANNING_TRENDS' 
+  | 'GENERATING_CONTENT' 
+  | 'ANALYZING_IMAGE_PROMPT' 
+  | 'GENERATING_IMAGE' 
+  | 'GENERATING_VIDEO' // New phase
+  | 'SCHEDULING' 
+  | 'COOLDOWN';
 
 export interface AppBackup {
   version: string;

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { UserProfile, ScheduledPost, ActivityLog, AutoPilotConfig, AutoPilotPhase } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -20,7 +19,9 @@ import {
     generateTrends, 
     generateText, 
     generateImagePromptFromContent, 
-    generateImage 
+    generateImage,
+    generateVideo,
+    ImagePayload
 } from '../services/geminiService';
 
 interface DashboardProps {
@@ -39,13 +40,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
   const [autoPilotConfig, setAutoPilotConfig] = useLocalStorage<AutoPilotConfig>('auto-pilot-config', {
     niche: 'Công nghệ AI',
     intervalMinutes: 60,
-    isActive: false
+    isActive: false,
+    enableVideo: false // Default to false as it consumes more quota/time
   });
   const [autoPilotPhase, setAutoPilotPhase] = useState<AutoPilotPhase>('IDLE');
 
   // --- Intermediate Data (The "Flow" between modules) ---
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string>('');
+  const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string>('');
   const [detectedTrend, setDetectedTrend] = useState<string>('');
   
   // Lifted state for manual overrides
@@ -75,6 +78,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
     if (!autoPilotConfig.isActive) return;
 
     try {
+        // Reset per-cycle states
+        setGeneratedVideoUrl('');
+        setGeneratedImageUrl('');
+        setGeneratedContent('');
+
         // 1. SCANNING TRENDS
         setAutoPilotPhase('SCANNING_TRENDS');
         addLog('AutoPilot', `Bắt đầu chu trình mới. Đang quét xu hướng về "${autoPilotConfig.niche}"...`);
@@ -100,26 +108,60 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
         // 4. GENERATING IMAGE
         setAutoPilotPhase('GENERATING_IMAGE');
         const imgUrl = await generateImage(imgPrompt);
+        let finalVideoUrl = '';
+
         if (imgUrl) {
             setGeneratedImageUrl(imgUrl); // Update ImageAgent UI
             addLog('ImageAgent', `[Auto] Đã vẽ xong ảnh minh họa.`);
+
+            // 5. GENERATING VIDEO (Optional Step)
+            if (autoPilotConfig.enableVideo) {
+                setAutoPilotPhase('GENERATING_VIDEO');
+                addLog('VideoAgent', `[Auto] Đang chuyển ảnh thành video (Veo 3.1)...`);
+                
+                try {
+                    // Extract base64 data from data URL
+                    const base64Data = imgUrl.split(',')[1];
+                    const mimeType = imgUrl.split(';')[0].split(':')[1];
+
+                    const imagePayload: ImagePayload = {
+                        imageBytes: base64Data,
+                        mimeType: mimeType
+                    };
+
+                    // Generate Video using Content as prompt and Image as start frame
+                    // Wrap imagePayload in array [] as per new signature
+                    finalVideoUrl = await generateVideo(
+                        `Cinematic movement for: ${content.substring(0, 50)}`, 
+                        [imagePayload], 
+                        { model: 'veo-3.1-fast-generate-preview', resolution: '720p', aspectRatio: '16:9' }
+                    );
+                    
+                    setGeneratedVideoUrl(finalVideoUrl);
+                    addLog('VideoAgent', `[Auto] Đã tạo video thành công.`);
+                } catch (vidErr) {
+                    addLog('VideoAgent', `[Auto] Lỗi tạo video: ${(vidErr as Error).message}`, 'Error');
+                    // Continue even if video fails, we still have the image
+                }
+            }
         } else {
             addLog('ImageAgent', `[Auto] Lỗi tạo ảnh, sẽ đăng bài không ảnh.`, 'Error');
         }
 
-        // 5. SCHEDULING
+        // 6. SCHEDULING
         setAutoPilotPhase('SCHEDULING');
         const newPost: ScheduledPost = {
             id: Date.now().toString(),
             content: content,
             imageUrl: imgUrl || undefined,
+            videoUrl: finalVideoUrl || undefined,
             scheduledTime: new Date(Date.now() + 10 * 60000).toLocaleString(), // Schedule for 10 mins later
             status: 'Scheduled',
         };
         setPosts((prev) => [newPost, ...prev]);
         addLog('SchedulerAgent', `[Auto] Đã lên lịch đăng bài thành công!`);
 
-        // 6. COOLDOWN
+        // 7. COOLDOWN
         setAutoPilotPhase('COOLDOWN');
         const nextRunMs = autoPilotConfig.intervalMinutes * 60 * 1000;
         addLog('AutoPilot', `Hoàn tất chu trình. Nghỉ ${autoPilotConfig.intervalMinutes} phút.`);
@@ -228,16 +270,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
                 />
             </div>
 
+            <VideoAgent 
+                addLog={addLog} 
+                generatedVideo={generatedVideoUrl}
+                isAutoGenerating={autoPilotPhase === 'GENERATING_VIDEO'}
+            />
+
             <SchedulerAgent
                 posts={posts}
                 setPosts={setPosts}
                 content={generatedContent}
                 imageUrl={generatedImageUrl}
+                videoUrl={generatedVideoUrl} // Pass the video URL to scheduler preview
                 addLog={addLog}
                 isAutoMode={isAutoMode}
             />
-
-            <VideoAgent addLog={addLog} />
           </div>
 
           {/* RIGHT: Engagement & Analytics */}

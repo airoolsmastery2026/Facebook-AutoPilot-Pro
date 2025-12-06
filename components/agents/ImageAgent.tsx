@@ -39,7 +39,7 @@ const ImageAgent: React.FC<ImageAgentProps> = ({
     setIsLoading(true);
     setImageUrl('');
     
-    const modelLabel = useProModel ? "Gemini 3 Pro" : "Nano Banana";
+    const modelLabel = useProModel ? "Gemini 3 Pro (4K)" : "Nano Banana";
     addLog('ImageAgent', `Đang tạo ảnh với mô hình ${modelLabel}...`);
 
     const result = await generateImage(prompt, useProModel);
@@ -49,7 +49,7 @@ const ImageAgent: React.FC<ImageAgentProps> = ({
       onImageGenerated(result);
       addLog('ImageAgent', `Đã tạo hình ảnh thành công (${modelLabel}).`);
     } else {
-      addLog('ImageAgent', `Tạo hình ảnh thất bại`, 'Error');
+      addLog('ImageAgent', `Tạo hình ảnh thất bại. Có thể do lỗi API hoặc nội dung không phù hợp.`, 'Error');
     }
     setIsLoading(false);
   };
@@ -89,7 +89,7 @@ const ImageAgent: React.FC<ImageAgentProps> = ({
           <div className="flex flex-col">
             <span className="text-sm font-medium text-gray-200">Mô hình AI</span>
             <span className="text-[10px] text-gray-400">
-              {useProModel ? "Gemini 3 Pro (Chất lượng cao, 1K)" : "Nano Banana (Tốc độ nhanh)"}
+              {useProModel ? "Gemini 3 Pro (Siêu nét 4K)" : "Nano Banana (Tốc độ nhanh)"}
             </span>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
@@ -141,7 +141,7 @@ const ImageAgent: React.FC<ImageAgentProps> = ({
               : 'bg-indigo-600 hover:bg-indigo-700'
           }`}
         >
-          {isLoading || isAutoGenerating ? 'Đang tạo...' : useProModel ? 'Tạo ảnh (Pro 3.0)' : 'Tạo hình ảnh'}
+          {isLoading || isAutoGenerating ? 'Đang tạo...' : useProModel ? 'Tạo ảnh (Pro 4K)' : 'Tạo hình ảnh'}
         </button>
         <div className="w-full aspect-square bg-gray-700/50 rounded-md flex items-center justify-center mt-4 overflow-hidden relative">
           {(isLoading || isAutoGenerating) && (
