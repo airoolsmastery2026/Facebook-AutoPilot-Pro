@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import Card from '../Card';
 import { generateVideo, ApiKeyError, VideoConfig, ImagePayload } from '../../services/geminiService';
@@ -36,6 +37,7 @@ const loadingMessages = [
 
 const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoGenerating = false }) => {
   const [prompt, setPrompt] = useState('');
+  const [videoTitle, setVideoTitle] = useState(''); // New Video Title State
   
   // Consistent Character State
   const [isConsistencyMode, setIsConsistencyMode] = useLocalStorage<boolean>('video-consistency-mode', false);
@@ -415,6 +417,16 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog, generatedVideo, isAutoG
                </p>
           )}
         </div>
+        
+        {/* Video Title Input */}
+        <input
+          type="text"
+          value={videoTitle}
+          onChange={(e) => setVideoTitle(e.target.value)}
+          placeholder="Tiêu đề video (Tùy chọn)..."
+          className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500 placeholder-gray-500 mb-1"
+          disabled={needsApiKeySelection || isAutoGenerating}
+        />
 
         <input
           type="text"

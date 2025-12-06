@@ -102,10 +102,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleRemoveAccount = (id: string, name: string) => {
-    if (confirm(`Bạn có chắc chắn muốn xóa tài khoản "${name}" khỏi danh sách?`)) {
+  const handleRemoveAccount = (id: string, name: string, token: string) => {
+    if (confirm(`CẢNH BÁO: Bạn có chắc chắn muốn xóa tài khoản "${name}" khỏi hệ thống?`)) {
+      
+      // If deleting the currently active account, handle it gracefully
+      if (token === currentUserToken) {
+         showNotification('error', 'Bạn đã xóa tài khoản đang đăng nhập. Hệ thống sẽ làm mới.');
+         // Optionally force logout logic via callback if passed, or user just switches manually
+      }
+
       onUpdateAccounts((prev) => prev.filter(acc => acc.id !== id));
-      showNotification('info', `Đã xóa tài khoản "${name}".`);
+      showNotification('error', `Đã xóa tài khoản "${name}" thành công.`);
     }
   };
 
@@ -307,17 +314,31 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                             </div>
                           </div>
                           
-                          <div className="flex items-center space-x-3">
+                          <div className="flex items-center space-x-2">
+                            {/* NEW: Open Profile Link */}
+                            <a
+                              href={`https://facebook.com/${acc.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-gray-500 hover:text-blue-400 p-2 hover:bg-blue-900/20 rounded-lg transition"
+                              title="Mở trang cá nhân Facebook"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                            </a>
+
                             {!isActive && (
                               <button
                                 onClick={() => onSwitchAccount(acc.accessToken)}
                                 className="text-xs bg-gray-600 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition shadow-sm"
                               >
-                                Chuyển sang nick này
+                                Chuyển
                               </button>
                             )}
+                            
                             <button
-                              onClick={() => handleRemoveAccount(acc.id, acc.name)}
+                              onClick={() => handleRemoveAccount(acc.id, acc.name, acc.accessToken)}
                               className="text-gray-500 hover:text-red-400 p-2 hover:bg-red-900/20 rounded-lg transition"
                               title="Xóa tài khoản khỏi danh sách"
                             >

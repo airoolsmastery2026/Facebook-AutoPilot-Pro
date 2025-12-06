@@ -115,6 +115,53 @@ export const generateText = async (prompt: string): Promise<string> => {
   }
 };
 
+export const suggestContentTopics = async (niche: string): Promise<string[]> => {
+  try {
+    const ai = getGenAIInstance();
+    const prompt = `Suggest 5 engaging, viral, and relevant Facebook post topics for the niche: "${niche}". 
+    Target audience: Vietnamese users.
+    Output only the topics, one per line, no numbering, no bullet points.`;
+
+    const result = await retryOperation(async () => {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+      });
+      return response.text;
+    });
+
+    return result.split('\n').filter(line => line.trim().length > 0).map(line => line.trim());
+  } catch (error) {
+    if (error instanceof ApiKeyError) throw error;
+    console.error('Error suggesting topics:', error);
+    return [];
+  }
+};
+
+export const generatePostTitle = async (content: string): Promise<string> => {
+  try {
+    const ai = getGenAIInstance();
+    const prompt = `Create a catchy, click-worthy, but professional Facebook headline (Title) for the following content. 
+    Language: Vietnamese.
+    Keep it under 15 words. Do not use quotes.
+    
+    Content: "${content.substring(0, 500)}..."`;
+
+    const result = await retryOperation(async () => {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+      });
+      return response.text;
+    });
+    return result.trim();
+  } catch (error) {
+    if (error instanceof ApiKeyError) throw error;
+    console.error('Error generating title:', error);
+    return '';
+  }
+};
+
 export const generateImagePromptFromContent = async (content: string): Promise<string> => {
   try {
     const ai = getGenAIInstance();
@@ -196,6 +243,9 @@ export const generateImage = async (
           { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
           { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
         ];
+    } else {
+        // Optimization for Speed (Flash Model)
+        // Ensure no heavy configs are passed that might slow it down
     }
 
     const response: GenerateContentResponse = await retryOperation(async () => {
@@ -286,8 +336,10 @@ export const generateVideo = async (
     let operation: VideosOperation | GetVideosOperationResponse =
       await retryOperation(async () => await ai.models.generateVideos(payload));
 
+    // POLLING OPTIMIZATION: Reduced check interval from 10000ms (10s) to 2000ms (2s)
+    // This significantly improves perceived speed for short video generation (Veo Fast).
     while (!operation.done) {
-      await new Promise((resolve) => setTimeout(resolve, 10000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       operation = await retryOperation(async () => 
         await ai.operations.getVideosOperation({
           operation: operation as VideosOperation,

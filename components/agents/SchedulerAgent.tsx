@@ -9,6 +9,7 @@ interface SchedulerAgentProps {
   setPosts: (
     posts: ScheduledPost[] | ((prev: ScheduledPost[]) => ScheduledPost[]),
   ) => void;
+  title?: string;
   content: string;
   imageUrl: string;
   videoUrl?: string; // Add video support
@@ -37,6 +38,7 @@ const statusDisplayMap: Record<
 const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
   posts,
   setPosts,
+  title = '',
   content,
   imageUrl,
   videoUrl,
@@ -71,7 +73,7 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
         duePosts.forEach(post => {
           addLog(
             'SchedulerAgent', 
-            `[Auto AI] Tự động đăng bài: "${post.content.substring(0, 30)}${post.content.length > 30 ? '...' : ''}"`
+            `[Auto AI] Tự động đăng bài: "${post.title || post.content.substring(0, 30)}..."`
           );
         });
 
@@ -97,6 +99,7 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
     }
     const newPost: ScheduledPost = {
       id: Date.now().toString(),
+      title: title || 'Bài viết mới',
       content: content.substring(0, 100) + (content.length > 100 ? '...' : ''),
       imageUrl: imageUrl || undefined,
       videoUrl: videoUrl || undefined,
@@ -215,6 +218,7 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
               };
               
               const isScheduled = post.status === 'Scheduled';
+              const isPosted = post.status === 'Posted';
               const isEditing = editingPostId === post.id;
 
               return (
@@ -241,7 +245,8 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-gray-300 truncate" title={post.content}>
+                      {post.title && <p className="text-sm font-bold text-white truncate">{post.title}</p>}
+                      <p className="text-xs text-gray-300 truncate" title={post.content}>
                         {post.content}
                       </p>
                       
@@ -274,6 +279,21 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
                   </div>
 
                   <div className="flex items-center space-x-2 flex-shrink-0 self-end sm:self-center">
+                    {/* View on FB Button for Posted items */}
+                    {isPosted && (
+                        <a 
+                            href="https://facebook.com" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="p-1.5 text-blue-400 hover:text-white hover:bg-blue-600 rounded transition"
+                            title="Xem trên Facebook (Trình duyệt Chrome)"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                        </a>
+                    )}
+
                     {isScheduled ? (
                       <>
                         {!isEditing && (

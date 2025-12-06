@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { UserProfile, ScheduledPost, ActivityLog, AutoPilotConfig, AutoPilotPhase } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -18,6 +19,7 @@ import InboxAgent from './agents/InboxAgent';
 import { 
     generateTrends, 
     generateText, 
+    generatePostTitle, // New import
     generateImagePromptFromContent, 
     generateImage,
     generateVideo,
@@ -47,6 +49,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
 
   // --- Intermediate Data (The "Flow" between modules) ---
   const [generatedContent, setGeneratedContent] = useState<string>('');
+  const [generatedTitle, setGeneratedTitle] = useState<string>(''); // Store Title
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string>('');
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string>('');
   const [detectedTrend, setDetectedTrend] = useState<string>('');
@@ -82,6 +85,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
         setGeneratedVideoUrl('');
         setGeneratedImageUrl('');
         setGeneratedContent('');
+        setGeneratedTitle('');
 
         // 1. SCANNING TRENDS
         setAutoPilotPhase('SCANNING_TRENDS');
@@ -97,7 +101,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
         const contentPrompt = `Write a short, engaging Facebook post about this trending topic: "${topTrend}". Use Vietnamese language.`;
         const content = await generateText(contentPrompt);
         setGeneratedContent(content); // Update ContentAgent UI
-        addLog('ContentAgent', `[Auto] Đã viết nội dung dựa trên xu hướng.`);
+        
+        // Generate Title Automatically
+        const title = await generatePostTitle(content);
+        setGeneratedTitle(title);
+
+        addLog('ContentAgent', `[Auto] Đã viết nội dung và đặt tiêu đề: "${title}"`);
 
         // 3. ANALYZING IMAGE
         setAutoPilotPhase('ANALYZING_IMAGE_PROMPT');
@@ -152,6 +161,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
         setAutoPilotPhase('SCHEDULING');
         const newPost: ScheduledPost = {
             id: Date.now().toString(),
+            title: title || 'Bài viết tự động',
             content: content,
             imageUrl: imgUrl || undefined,
             videoUrl: finalVideoUrl || undefined,
@@ -219,6 +229,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleContentUpdate = (content: string, title: string) => {
+      setGeneratedContent(content);
+      setGeneratedTitle(title);
+  }
+
   return (
     <div className="bg-gray-900 min-h-screen text-gray-200">
       <Header 
@@ -253,7 +268,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
                 <div className="hidden md:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0 w-8 h-1 bg-gray-700"></div>
 
                 <ContentAgent
-                    onContentGenerated={setGeneratedContent}
+                    onContentGenerated={handleContentUpdate}
                     addLog={addLog}
                     initialTopic={contentTopic}
                     generatedContent={generatedContent} // Allow overriding state from AutoPilot
@@ -280,6 +295,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
                 posts={posts}
                 setPosts={setPosts}
                 content={generatedContent}
+                title={generatedTitle} // Pass title
                 imageUrl={generatedImageUrl}
                 videoUrl={generatedVideoUrl} // Pass the video URL to scheduler preview
                 addLog={addLog}

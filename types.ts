@@ -15,6 +15,7 @@ export interface FacebookAccount {
 
 export interface ScheduledPost {
   id: string;
+  title?: string; // Added title field
   content: string;
   imageUrl?: string;
   videoUrl?: string; // Added support for Video
