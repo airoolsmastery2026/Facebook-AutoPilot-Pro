@@ -2,8 +2,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
+import SettingsModal from './components/SettingsModal';
 import { useLocalStorage } from './hooks/useLocalStorage';
-import type { UserProfile } from './types';
+import type { UserProfile, FacebookAccount } from './types';
 import { getProfile } from './services/facebookService';
 
 const App: React.FC = () => {
@@ -11,18 +12,46 @@ const App: React.FC = () => {
     'fb-access-token',
     null,
   );
+  // Also store account history to auto-save successful logins
+  const [savedAccounts, setSavedAccounts] = useLocalStorage<FacebookAccount[]>('fb-accounts', []);
+  
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const handleLogin = useCallback(
-    async (token: string) => {
+    async (token: string, newApiKey?: string) => {
       setIsLoading(true);
       setError(null);
+      
+      // Save API Key if provided during login
+      if (newApiKey) {
+         window.localStorage.setItem('gemini-api-key', newApiKey);
+      }
+
       try {
         const userProfile = await getProfile(token);
+        // Attach token to profile for context
+        userProfile.accessToken = token;
+        
         setUser(userProfile);
         setAccessToken(token);
+
+        // Auto-save this account to the list if not exists
+        setSavedAccounts(prev => {
+          if (!prev.some(acc => acc.id === userProfile.id)) {
+            return [{
+              id: userProfile.id,
+              name: userProfile.name,
+              pictureUrl: userProfile.pictureUrl,
+              accessToken: token
+            }, ...prev];
+          }
+          // Update token if it changed
+          return prev.map(acc => acc.id === userProfile.id ? { ...acc, accessToken: token } : acc);
+        });
+
       } catch (err) {
         setError((err as Error).message);
         setAccessToken(null);
@@ -31,7 +60,7 @@ const App: React.FC = () => {
         setIsLoading(false);
       }
     },
-    [setAccessToken],
+    [setAccessToken, setSavedAccounts],
   );
 
   const handleLogout = useCallback(() => {
@@ -83,10 +112,26 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-900 font-sans">
       {user && accessToken ? (
-        <Dashboard user={user} onLogout={handleLogout} />
+        <Dashboard 
+          user={user} 
+          onLogout={handleLogout} 
+          onOpenSettings={() => setIsSettingsOpen(true)}
+        />
       ) : (
         <Login onLogin={handleLogin} isLoading={isLoading} error={error} />
       )}
+
+      {/* Settings Modal is available at app level */}
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)}
+        currentUserToken={accessToken}
+        onSwitchAccount={(token) => {
+          handleLogin(token);
+          // Close modal on switch if desired, or keep open
+          // setIsSettingsOpen(false); 
+        }}
+      />
     </div>
   );
 };

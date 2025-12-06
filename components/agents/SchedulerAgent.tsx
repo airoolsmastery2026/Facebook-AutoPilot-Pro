@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Card from '../Card';
 import type { ScheduledPost } from '../../types';
 import { CalendarIcon } from '../icons/CalendarIcon';
@@ -43,6 +43,43 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
     new Date(Date.now() + 3600 * 1000).toISOString().slice(0, 16),
   );
 
+  // Automation Logic: Check for due posts every 3 seconds
+  useEffect(() => {
+    const checkInterval = setInterval(() => {
+      const now = new Date();
+      
+      // Find posts that are Scheduled and due
+      const duePosts = posts.filter(post => {
+        if (post.status !== 'Scheduled') return false;
+        const postTime = new Date(post.scheduledTime);
+        return postTime <= now;
+      });
+
+      if (duePosts.length > 0) {
+        // 1. Update Logs
+        duePosts.forEach(post => {
+          addLog(
+            'SchedulerAgent', 
+            `Tự động đăng bài: "${post.content.substring(0, 30)}${post.content.length > 30 ? '...' : ''}"`
+          );
+        });
+
+        // 2. Update Status in State
+        setPosts(currentPosts => 
+          currentPosts.map(post => {
+            // Check if this specific post is in the due list
+            if (duePosts.some(p => p.id === post.id)) {
+              return { ...post, status: 'Posted' };
+            }
+            return post;
+          })
+        );
+      }
+    }, 3000);
+
+    return () => clearInterval(checkInterval);
+  }, [posts, setPosts, addLog]);
+
   const handleSchedule = () => {
     if (!content) {
       alert('Vui lòng tạo nội dung trước.');
@@ -52,8 +89,8 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
       id: Date.now().toString(),
       content: content.substring(0, 100) + (content.length > 100 ? '...' : ''),
       imageUrl,
+      // Store as locale string for display, but Date constructor can parse it back
       scheduledTime: new Date(scheduleTime).toLocaleString(),
-      // FIX: Changed status to 'Scheduled' to match the ScheduledPost type.
       status: 'Scheduled',
     };
     setPosts((prev) => [newPost, ...prev]);

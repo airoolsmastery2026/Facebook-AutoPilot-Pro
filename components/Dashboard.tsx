@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import type { UserProfile, ScheduledPost, ActivityLog } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -14,9 +15,10 @@ import AnalyticsAgent from './agents/AnalyticsAgent';
 interface DashboardProps {
   user: UserProfile;
   onLogout: () => void;
+  onOpenSettings?: () => void; // Added prop
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
+const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings }) => {
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string>('');
   const [posts, setPosts] = useLocalStorage<ScheduledPost[]>(
@@ -42,7 +44,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   return (
     <div className="bg-gray-900 min-h-screen text-gray-200">
-      <Header user={user} onLogout={onLogout} />
+      <Header 
+        user={user} 
+        onLogout={onLogout} 
+        onOpenSettings={onOpenSettings || (() => {})} // Pass handler
+      />
       <main className="p-4 sm:p-6 lg:p-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column */}

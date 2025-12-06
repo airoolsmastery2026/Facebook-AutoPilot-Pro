@@ -14,12 +14,24 @@ export class ApiKeyError extends Error {
 }
 
 // Function to get GoogleGenAI instance. It ensures the latest API_KEY is used.
-// It should be called right before making an API call.
+// It prioritizes the key from localStorage (user input), then process.env.
 const getGenAIInstance = (): GoogleGenAI => {
-  const apiKey = process.env.API_KEY; // Always get the latest API_KEY
+  let apiKey = '';
+  
+  // 1. Try to get from LocalStorage (User entered via Settings/Login)
+  if (typeof window !== 'undefined') {
+    const storedKey = window.localStorage.getItem('gemini-api-key');
+    if (storedKey) apiKey = storedKey;
+  }
+
+  // 2. Fallback to Environment Variable
+  if (!apiKey && process.env.API_KEY) {
+    apiKey = process.env.API_KEY;
+  }
+
   if (!apiKey) {
     throw new ApiKeyError(
-      'Gemini API key is not configured. Please select your API key.',
+      'Chưa cấu hình Gemini API Key. Vui lòng nhập khóa trong phần Cài đặt hoặc biến môi trường.',
       'MISSING'
     );
   }
@@ -67,7 +79,7 @@ export const generateText = async (prompt: string): Promise<string> => {
       throw error;
     }
     console.error('Error generating text with Gemini:', error);
-    return 'Error: Could not generate content. Please check your API key and network connection.';
+    return `Lỗi: ${(error as Error).message}`;
   }
 };
 
@@ -100,7 +112,7 @@ export const generateComment = async (
       throw error;
     }
     console.error('Error generating comment with Gemini:', error);
-    return 'Error: Could not generate comment.';
+    return 'Lỗi: Không thể tạo bình luận.';
   }
 };
 
@@ -115,8 +127,6 @@ export const generateImage = async (
         contents: {
           parts: [{ text: prompt }],
         },
-        // FIX: Removed responseModalities config to align with guidelines example for image generation.
-        // The model will still return inlineData without it.
         config: {}, 
       });
     });
@@ -158,7 +168,6 @@ export const generateVideo = async (
     };
 
     if (image) {
-      // FIX: Access imageBytes and mimeType directly from the image payload, not a nested 'file' property.
       payload.image = {
         imageBytes: image.imageBytes,
         mimeType: image.mimeType,
@@ -188,21 +197,27 @@ export const generateVideo = async (
       );
     }
 
-    // The API_KEY must be appended to the download link for authentication
-    const apiKey = process.env.API_KEY;
+    // Determine which key was used (Local or Env)
+    let apiKey = '';
+    if (typeof window !== 'undefined') {
+       apiKey = window.localStorage.getItem('gemini-api-key') || '';
+    }
+    if (!apiKey) apiKey = process.env.API_KEY || '';
+
     if (!apiKey) {
       throw new ApiKeyError(
-        'Gemini API key is not configured for video download. Please re-select your API key.',
+        'Gemini API key is not configured for video download.',
         'MISSING'
       );
     }
+
     const response = await fetch(`${downloadLink}&key=${apiKey}`);
     if (!response.ok) {
       const errorBody = await response.text();
       // Check for specific 404 error from the fetch response
       if (response.status === 404 && errorBody.includes("Requested entity was not found.")) {
         throw new ApiKeyError(
-          'The selected API key might be invalid or not associated with a paid project. Please re-select your API key.',
+          'Khóa API được chọn có thể không hợp lệ hoặc không liên kết với dự án tính phí. Vui lòng kiểm tra lại.',
           'NOT_FOUND_404'
         );
       }
@@ -221,7 +236,7 @@ export const generateVideo = async (
         const parsedError = JSON.parse(errorMessage);
         if (parsedError.error?.code === 404 && parsedError.error?.message === "Requested entity was not found.") {
           throw new ApiKeyError(
-            'The selected API key might be invalid or not associated with a paid project. Please re-select your API key.',
+             'Khóa API được chọn có thể không hợp lệ hoặc không liên kết với dự án tính phí. Vui lòng kiểm tra lại.',
             'NOT_FOUND_404'
           );
         }
@@ -231,7 +246,7 @@ export const generateVideo = async (
     } else if ((error as any)?.error?.code === 404 && (error as any)?.error?.message === "Requested entity was not found.") {
       // This path is for direct error objects from the SDK
       throw new ApiKeyError(
-        'The selected API key might be invalid or not associated with a paid project. Please re-select your API key.',
+         'Khóa API được chọn có thể không hợp lệ hoặc không liên kết với dự án tính phí. Vui lòng kiểm tra lại.',
         'NOT_FOUND_404'
       );
     }
