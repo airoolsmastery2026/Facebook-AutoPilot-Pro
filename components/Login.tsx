@@ -12,6 +12,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, isLoading, error }) => {
   const [token, setToken] = useState('');
   const [apiKey, setApiKey] = useLocalStorage<string>('gemini-api-key', '');
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+  const [activationStatus, setActivationStatus] = useState<'idle' | 'success'>('idle');
 
   // Check if env var exists to hide/show input initially
   useEffect(() => {
@@ -26,6 +27,12 @@ const Login: React.FC<LoginProps> = ({ onLogin, isLoading, error }) => {
       onLogin(token.trim(), apiKey.trim());
     }
   };
+
+  const handleActivateApiKey = () => {
+      if (!apiKey.trim()) return;
+      setActivationStatus('success');
+      setTimeout(() => setActivationStatus('idle'), 2000);
+  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-4">
@@ -75,14 +82,28 @@ const Login: React.FC<LoginProps> = ({ onLogin, isLoading, error }) => {
                 >
                   AI Studio / Gemini API Key
                 </label>
-                <input
-                  id="apiKey"
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="AIza..."
-                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-                />
+                <div className="flex gap-2">
+                    <input
+                    id="apiKey"
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="AIza..."
+                    className="flex-1 px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+                    />
+                    <button
+                        type="button"
+                        onClick={handleActivateApiKey}
+                        disabled={!apiKey.trim()}
+                        className={`px-4 py-2 rounded-lg font-medium transition text-sm ${
+                        activationStatus === 'success'
+                            ? 'bg-green-600 text-white hover:bg-green-700'
+                            : 'bg-gray-600 text-white hover:bg-gray-500'
+                        } disabled:opacity-50`}
+                    >
+                        {activationStatus === 'success' ? 'Đã lưu' : 'Kích hoạt'}
+                    </button>
+                </div>
                 <p className="text-xs text-gray-500 mt-1">
                   Cần thiết để sử dụng các tính năng tạo nội dung, ảnh và video.
                 </p>

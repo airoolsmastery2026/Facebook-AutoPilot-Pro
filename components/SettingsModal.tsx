@@ -24,7 +24,21 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isAddingAccount, setIsAddingAccount] = useState(false);
   const [addAccountError, setAddAccountError] = useState<string | null>(null);
 
+  // State for activation button feedback
+  const [apiActivationStatus, setApiActivationStatus] = useState<'idle' | 'success'>('idle');
+
   if (!isOpen) return null;
+
+  const handleActivateApiKey = () => {
+    if (!apiKey.trim()) return;
+    // Visually confirm activation
+    setApiActivationStatus('success');
+    
+    // Reset status after 2 seconds
+    setTimeout(() => {
+      setApiActivationStatus('idle');
+    }, 2000);
+  };
 
   const handleAddAccount = async () => {
     if (!newAccountToken.trim()) return;
@@ -101,13 +115,35 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   Gemini API Key (AI Studio)
                 </label>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Nhập khóa API bắt đầu bằng AIza..."
-                  className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="Nhập khóa API bắt đầu bằng AIza..."
+                    className="flex-1 px-3 py-2 bg-gray-900 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={handleActivateApiKey}
+                    disabled={!apiKey.trim()}
+                    className={`px-4 py-2 rounded-md font-medium transition whitespace-nowrap ${
+                      apiActivationStatus === 'success'
+                        ? 'bg-green-600 text-white hover:bg-green-700'
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    {apiActivationStatus === 'success' ? (
+                      <span className="flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                        Đã kích hoạt
+                      </span>
+                    ) : (
+                      'Kích hoạt'
+                    )}
+                  </button>
+                </div>
                 <p className="text-xs text-gray-500 mt-1">
                   Nếu để trống, ứng dụng sẽ cố gắng sử dụng biến môi trường hệ thống.
                 </p>
@@ -117,12 +153,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   Khóa API khác (Nếu có)
                 </label>
-                <input
-                  type="text"
-                  placeholder="Ví dụ: OpenWeather API, NewsAPI..."
-                  className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled
-                />
+                <div className="flex gap-2">
+                    <input
+                    type="text"
+                    placeholder="Ví dụ: OpenWeather API, NewsAPI..."
+                    className="flex-1 px-3 py-2 bg-gray-900 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled
+                    />
+                     <button
+                        disabled
+                        className="px-4 py-2 bg-gray-700 text-gray-400 rounded-md font-medium cursor-not-allowed"
+                    >
+                        Kích hoạt
+                    </button>
+                </div>
                 <p className="text-xs text-gray-500 mt-1">
                   Tính năng đang phát triển.
                 </p>

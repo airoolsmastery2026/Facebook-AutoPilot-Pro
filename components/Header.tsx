@@ -1,14 +1,57 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import type { UserProfile } from '../types';
 
 interface HeaderProps {
   user: UserProfile;
   onLogout: () => void;
   onOpenSettings: () => void;
+  onVoiceCommand?: (command: string) => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ user, onLogout, onOpenSettings }) => {
+const Header: React.FC<HeaderProps> = ({ user, onLogout, onOpenSettings, onVoiceCommand }) => {
+  const [isListening, setIsListening] = useState(false);
+  const [recognition, setRecognition] = useState<any>(null);
+
+  useEffect(() => {
+    // Initialize Speech Recognition if supported
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      // @ts-ignore
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new SpeechRecognition();
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = 'vi-VN'; // Vietnamese language
+
+      rec.onstart = () => setIsListening(true);
+      rec.onend = () => setIsListening(false);
+      rec.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (onVoiceCommand) {
+          onVoiceCommand(transcript);
+        }
+      };
+      rec.onerror = (event: any) => {
+        console.error("Speech recognition error", event.error);
+        setIsListening(false);
+      };
+
+      setRecognition(rec);
+    }
+  }, [onVoiceCommand]);
+
+  const toggleListening = () => {
+    if (!recognition) {
+      alert("Trình duyệt của bạn không hỗ trợ nhận diện giọng nói.");
+      return;
+    }
+    if (isListening) {
+      recognition.stop();
+    } else {
+      recognition.start();
+    }
+  };
+
   return (
     <header className="bg-gray-800/50 backdrop-blur-sm sticky top-0 z-10 p-4 border-b border-gray-700">
       <div className="max-w-7xl mx-auto flex justify-between items-center">
@@ -24,7 +67,23 @@ const Header: React.FC<HeaderProps> = ({ user, onLogout, onOpenSettings }) => {
           </span>
         </div>
         <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
+          {/* Voice Command Button */}
+          <button
+            onClick={toggleListening}
+            className={`p-2 rounded-full transition-all duration-300 flex items-center gap-2 ${
+              isListening 
+                ? 'bg-red-600 text-white animate-pulse ring-4 ring-red-900/50' 
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+            title="Điều khiển bằng giọng nói (VD: 'Tạo bài viết về Mèo')"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+            </svg>
+            {isListening && <span className="text-xs font-bold hidden sm:inline">Đang nghe...</span>}
+          </button>
+
+          <div className="flex items-center space-x-2 border-l border-gray-600 pl-4">
             <img
               src={user.pictureUrl}
               alt={user.name}

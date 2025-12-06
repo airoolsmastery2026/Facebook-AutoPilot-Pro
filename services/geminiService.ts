@@ -83,6 +83,30 @@ export const generateText = async (prompt: string): Promise<string> => {
   }
 };
 
+export const generateImagePromptFromContent = async (content: string): Promise<string> => {
+  try {
+    const ai = getGenAIInstance();
+    const prompt = `Analyze the following Facebook post content and create a highly detailed, creative image generation prompt (in English) that visually represents the core message, mood, or subject of the post. 
+    The prompt should specify artistic style, lighting, and details. Keep it under 50 words.
+    
+    Post Content: "${content}"
+    
+    Image Prompt:`;
+
+    return await retryOperation(async () => {
+      const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+      });
+      return response.text.trim();
+    });
+  } catch (error) {
+    if (error instanceof ApiKeyError) throw error;
+    console.error('Error generating image prompt:', error);
+    return '';
+  }
+};
+
 export const generateComment = async (
   postTopic: string,
   userInterests: string,
@@ -254,3 +278,76 @@ export const generateVideo = async (
     throw error;
   }
 };
+
+// --- NEW FEATURES ---
+
+export interface TrendResult {
+  text: string;
+  urls: string[];
+}
+
+export const generateTrends = async (niche: string): Promise<TrendResult> => {
+  try {
+    const ai = getGenAIInstance();
+    // Using gemini-2.5-flash with googleSearch tool for real-time grounding
+    const response: GenerateContentResponse = await retryOperation(async () => {
+      return await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `What are 3 trending topics or news right now related to "${niche}" in Vietnam? Provide a short summary list.`,
+        config: {
+          tools: [{ googleSearch: {} }],
+        },
+      });
+    });
+
+    const text = response.text || 'Không tìm thấy xu hướng.';
+    
+    // Extract URLs from grounding metadata
+    const urls: string[] = [];
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    chunks.forEach((chunk: any) => {
+      if (chunk.web?.uri) {
+        urls.push(chunk.web.uri);
+      }
+    });
+
+    return { text, urls };
+  } catch (error) {
+    if (error instanceof ApiKeyError) throw error;
+    console.error('Error generating trends:', error);
+    return { text: 'Không thể tải xu hướng lúc này.', urls: [] };
+  }
+};
+
+export const analyzeSentimentAndReply = async (comment: string): Promise<{ sentiment: string; reply: string }> => {
+  try {
+    const ai = getGenAIInstance();
+    const prompt = `Analyze the sentiment of this Facebook comment: "${comment}". 
+    Classify it as 'Positive', 'Negative', or 'Inquiry'.
+    Then, write a polite, professional, and short reply in Vietnamese.
+    
+    Format the output exactly like this:
+    Sentiment: [Sentiment]
+    Reply: [Reply text]`;
+
+    const response = await retryOperation(async () => {
+      return await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+      });
+    });
+
+    const text = response.text || '';
+    const sentimentMatch = text.match(/Sentiment:\s*(.*)/i);
+    const replyMatch = text.match(/Reply:\s*(.*)/is);
+
+    return {
+      sentiment: sentimentMatch ? sentimentMatch[1].trim() : 'Neutral',
+      reply: replyMatch ? replyMatch[1].trim() : 'Cảm ơn bạn đã quan tâm!',
+    };
+  } catch (error) {
+     if (error instanceof ApiKeyError) throw error;
+     console.error('Error analyzing sentiment:', error);
+     return { sentiment: 'Error', reply: 'Lỗi kết nối AI.' };
+  }
+}

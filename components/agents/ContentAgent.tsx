@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Card from '../Card';
 import { generateText } from '../../services/geminiService';
 import { PenIcon } from '../icons/PenIcon';
@@ -7,21 +7,28 @@ import { PenIcon } from '../icons/PenIcon';
 interface ContentAgentProps {
   onContentGenerated: (content: string) => void;
   addLog: (agent: string, action: string, status?: 'Success' | 'Error') => void;
+  initialTopic?: string; // New prop for integration
 }
 
 const ContentAgent: React.FC<ContentAgentProps> = ({
   onContentGenerated,
   addLog,
+  initialTopic = '',
 }) => {
-  const [topic, setTopic] = useState('');
+  const [topic, setTopic] = useState(initialTopic);
   const [generatedText, setGeneratedText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Update topic if prop changes (e.g. from Voice or Trend Agent)
+  useEffect(() => {
+    if (initialTopic) setTopic(initialTopic);
+  }, [initialTopic]);
 
   const handleGenerate = async () => {
     if (!topic) return;
     setIsLoading(true);
     setGeneratedText('');
-    const prompt = `Create a natural, engaging Facebook post about "${topic}". Include relevant hashtags. The tone should be conversational and friendly.`;
+    const prompt = `Create a natural, engaging Facebook post about "${topic}". Include relevant hashtags. The tone should be conversational and friendly in Vietnamese.`;
     const result = await generateText(prompt);
     setGeneratedText(result);
     onContentGenerated(result);
@@ -35,13 +42,16 @@ const ContentAgent: React.FC<ContentAgentProps> = ({
         <p className="text-sm text-gray-400">
           Người viết do AI hỗ trợ để tạo các bài đăng, chú thích và hashtag hấp dẫn.
         </p>
-        <input
-          type="text"
-          value={topic}
-          onChange={(e) => setTopic(e.target.value)}
-          placeholder="Nhập chủ đề (ví dụ: 'cà phê buổi sáng')"
-          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+        <div className="relative">
+            <input
+            type="text"
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="Nhập chủ đề (ví dụ: 'cà phê buổi sáng')"
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 pr-10"
+            />
+        </div>
+        
         <button
           onClick={handleGenerate}
           disabled={isLoading || !topic}

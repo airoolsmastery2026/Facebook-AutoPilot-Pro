@@ -12,6 +12,7 @@ interface SchedulerAgentProps {
   content: string;
   imageUrl: string;
   addLog: (agent: string, action: string) => void;
+  isAutoMode: boolean; // New prop
 }
 
 const statusDisplayMap: Record<
@@ -38,6 +39,7 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
   content,
   imageUrl,
   addLog,
+  isAutoMode,
 }) => {
   const [scheduleTime, setScheduleTime] = useState(
     new Date(Date.now() + 3600 * 1000).toISOString().slice(0, 16),
@@ -46,6 +48,9 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
   // Automation Logic: Check for due posts every 3 seconds
   useEffect(() => {
     const checkInterval = setInterval(() => {
+      // If NOT in Auto Mode, do not process posts automatically
+      if (!isAutoMode) return;
+
       const now = new Date();
       
       // Find posts that are Scheduled and due
@@ -60,7 +65,7 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
         duePosts.forEach(post => {
           addLog(
             'SchedulerAgent', 
-            `Tự động đăng bài: "${post.content.substring(0, 30)}${post.content.length > 30 ? '...' : ''}"`
+            `[Auto AI] Tự động đăng bài: "${post.content.substring(0, 30)}${post.content.length > 30 ? '...' : ''}"`
           );
         });
 
@@ -78,7 +83,7 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
     }, 3000);
 
     return () => clearInterval(checkInterval);
-  }, [posts, setPosts, addLog]);
+  }, [posts, setPosts, addLog, isAutoMode]); // Depend on isAutoMode
 
   const handleSchedule = () => {
     if (!content) {
@@ -109,15 +114,27 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
     const statusText = newStatus === 'Posted' ? 'Đã đăng' : 'Thất bại';
     addLog(
       'SchedulerAgent',
-      `Cập nhật thủ công bài đăng thành '${statusText}'`,
+      `[Thủ công] Cập nhật bài đăng thành '${statusText}'`,
     );
   };
 
   return (
     <Card title="Trợ lý Lên lịch" icon={<CalendarIcon />}>
-      <p className="text-sm text-gray-400 mb-4">
-        Tự động lên lịch đăng bài vào thời điểm tương tác tối ưu.
-      </p>
+      <div className="flex justify-between items-start mb-4">
+        <p className="text-sm text-gray-400">
+          Quản lý lịch đăng bài. 
+          {isAutoMode ? (
+             <span className="ml-1 text-green-400 font-semibold text-xs border border-green-600/50 bg-green-900/30 px-2 py-0.5 rounded">
+                ● Tự động đăng khi đến giờ
+             </span>
+          ) : (
+             <span className="ml-1 text-orange-400 font-semibold text-xs border border-orange-600/50 bg-orange-900/30 px-2 py-0.5 rounded">
+                ● Cần duyệt thủ công
+             </span>
+          )}
+        </p>
+      </div>
+      
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
         <div>
           <label
@@ -155,6 +172,13 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
                 text: post.status,
                 className: 'bg-gray-800/50 text-gray-300 border-gray-700',
               };
+              
+              // Determine if we should show manual controls
+              // Show if: Status is 'Scheduled' AND (Mode is Manual OR We want to allow manual override anyway)
+              // Currently always showing manual controls for 'Scheduled' posts gives users power to force-post even in auto mode, 
+              // but mostly useful in Manual mode.
+              const isScheduled = post.status === 'Scheduled';
+
               return (
                 <div
                   key={post.id}
@@ -178,21 +202,21 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
                     </div>
                   </div>
                   <div className="flex items-center space-x-2 flex-shrink-0">
-                    {post.status === 'Scheduled' ? (
+                    {isScheduled ? (
                       <>
                         <button
                           onClick={() => handleUpdateStatus(post.id, 'Posted')}
                           className="px-2 py-1 text-xs font-semibold text-white bg-green-600 hover:bg-green-700 rounded-md transition"
-                          title="Đánh dấu là đã đăng"
+                          title="Đăng ngay (Thủ công)"
                         >
                           Đăng
                         </button>
                         <button
                           onClick={() => handleUpdateStatus(post.id, 'Failed')}
                           className="px-2 py-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-md transition"
-                          title="Đánh dấu là thất bại"
+                          title="Hủy / Lỗi"
                         >
-                          Lỗi
+                          Hủy
                         </button>
                       </>
                     ) : (
