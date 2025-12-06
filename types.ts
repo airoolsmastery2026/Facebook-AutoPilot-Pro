@@ -28,3 +28,30 @@ export interface ActivityLog {
   action: string;
   status: 'Success' | 'Error';
 }
+
+export interface AutoPilotConfig {
+  niche: string;
+  intervalMinutes: number;
+  isActive: boolean;
+  lastRun?: string;
+}
+
+export type AutoPilotPhase = 'IDLE' | 'SCANNING_TRENDS' | 'GENERATING_CONTENT' | 'ANALYZING_IMAGE_PROMPT' | 'GENERATING_IMAGE' | 'SCHEDULING' | 'COOLDOWN';
+
+export interface AppBackup {
+  version: string;
+  timestamp: string;
+  settings: {
+    apiKey: string;
+    facebookAccounts: FacebookAccount[];
+    autoPilotConfig: AutoPilotConfig;
+    interests: string;
+    enableLikes: boolean;
+    enableComments: boolean;
+    exampleComments: string;
+  };
+  data: {
+    posts: ScheduledPost[];
+    logs: ActivityLog[];
+  };
+}

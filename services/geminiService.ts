@@ -142,16 +142,32 @@ export const generateComment = async (
 
 export const generateImage = async (
   prompt: string,
+  useHighQuality: boolean = false
 ): Promise<string | null> => {
   try {
     const ai = getGenAIInstance();
+    
+    // Select model based on quality preference
+    // 'gemini-2.5-flash-image' (Nano Banana) for speed/standard
+    // 'gemini-3-pro-image-preview' for high quality
+    const modelName = useHighQuality ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
+
+    const config: any = {};
+    if (useHighQuality) {
+        // High quality model supports specific image sizing
+        config.imageConfig = {
+            aspectRatio: "1:1",
+            imageSize: "1K"
+        };
+    }
+
     const response: GenerateContentResponse = await retryOperation(async () => {
       return await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
+        model: modelName,
         contents: {
           parts: [{ text: prompt }],
         },
-        config: {}, 
+        config: config, 
       });
     });
 

@@ -1,0 +1,138 @@
+
+import React, { useState, useEffect } from 'react';
+import Card from './Card';
+import type { AutoPilotConfig, AutoPilotPhase } from '../types';
+
+interface AutoPilotControlsProps {
+  config: AutoPilotConfig;
+  onUpdateConfig: (newConfig: AutoPilotConfig) => void;
+  currentPhase: AutoPilotPhase;
+}
+
+const AutoPilotControls: React.FC<AutoPilotControlsProps> = ({
+  config,
+  onUpdateConfig,
+  currentPhase,
+}) => {
+  const [nicheInput, setNicheInput] = useState(config.niche);
+  const [intervalInput, setIntervalInput] = useState(config.intervalMinutes);
+
+  // Sync internal state if props change externally (e.g. from restore backup)
+  useEffect(() => {
+    setNicheInput(config.niche);
+    setIntervalInput(config.intervalMinutes);
+  }, [config.niche, config.intervalMinutes]);
+
+  const handleToggle = () => {
+    onUpdateConfig({
+      ...config,
+      isActive: !config.isActive,
+      niche: nicheInput,
+      intervalMinutes: intervalInput,
+    });
+  };
+
+  const getPhaseLabel = (phase: AutoPilotPhase) => {
+    switch (phase) {
+      case 'SCANNING_TRENDS': return '📡 Đang quét Trend Google...';
+      case 'GENERATING_CONTENT': return '✍️ Đang viết bài...';
+      case 'ANALYZING_IMAGE_PROMPT': return '🧠 Đang phân tích ý tưởng ảnh...';
+      case 'GENERATING_IMAGE': return '🎨 Đang vẽ minh họa...';
+      case 'SCHEDULING': return '📅 Đang lên lịch đăng...';
+      case 'COOLDOWN': return `⏳ Đang chờ lượt sau (${config.intervalMinutes}p)...`;
+      default: return '💤 Hệ thống nghỉ';
+    }
+  };
+
+  const getProgressBarWidth = (phase: AutoPilotPhase) => {
+    switch (phase) {
+        case 'SCANNING_TRENDS': return '20%';
+        case 'GENERATING_CONTENT': return '40%';
+        case 'ANALYZING_IMAGE_PROMPT': return '60%';
+        case 'GENERATING_IMAGE': return '80%';
+        case 'SCHEDULING': return '100%';
+        default: return '0%';
+    }
+  };
+
+  return (
+    <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-xl border border-blue-900/50 shadow-lg p-6 mb-6 relative overflow-hidden">
+        {/* Background Animation when Active */}
+        {config.isActive && (
+            <div className="absolute inset-0 z-0 opacity-10">
+                <div className="absolute top-0 -left-1/4 w-1/2 h-full bg-blue-500/30 skew-x-12 animate-shimmer"></div>
+            </div>
+        )}
+
+      <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        <div>
+          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+            🚀 Auto-Pilot Master Engine
+            {config.isActive && (
+                 <span className="flex h-3 w-3 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                </span>
+            )}
+          </h2>
+          <p className="text-gray-400 text-sm mt-1">
+            Hệ thống tự động: Tìm Trend ➔ Viết Bài ➔ Vẽ Ảnh ➔ Lên Lịch
+          </p>
+        </div>
+
+        <div className="flex items-center gap-4 bg-gray-800/80 p-2 rounded-lg border border-gray-700">
+            <div className="flex flex-col">
+                <label className="text-[10px] uppercase text-gray-500 font-bold">Chủ đề (Niche)</label>
+                <input 
+                    type="text" 
+                    value={nicheInput}
+                    onChange={(e) => setNicheInput(e.target.value)}
+                    disabled={config.isActive}
+                    className="bg-transparent text-white font-medium focus:outline-none border-b border-gray-600 focus:border-blue-500 w-32"
+                />
+            </div>
+            <div className="w-px h-8 bg-gray-700"></div>
+            <div className="flex flex-col">
+                <label className="text-[10px] uppercase text-gray-500 font-bold">Tần suất (Phút)</label>
+                <input 
+                    type="number" 
+                    min={15}
+                    value={intervalInput}
+                    onChange={(e) => setIntervalInput(Number(e.target.value))}
+                    disabled={config.isActive}
+                    className="bg-transparent text-white font-medium focus:outline-none border-b border-gray-600 focus:border-blue-500 w-16"
+                />
+            </div>
+            <button
+                onClick={handleToggle}
+                className={`ml-2 px-6 py-3 rounded-lg font-bold shadow-lg transition-all transform hover:scale-105 ${
+                    config.isActive 
+                    ? 'bg-red-600 hover:bg-red-700 text-white'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
+            >
+                {config.isActive ? 'DỪNG HỆ THỐNG' : 'KÍCH HOẠT A-Z'}
+            </button>
+        </div>
+      </div>
+
+      {/* Status Bar */}
+      {config.isActive && (
+          <div className="mt-6 relative z-10">
+              <div className="flex justify-between text-xs font-semibold text-blue-300 mb-2 uppercase tracking-wider">
+                  <span>Trạng thái: {getPhaseLabel(currentPhase)}</span>
+                  <span>Tiến trình</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className="bg-blue-500 h-2 rounded-full transition-all duration-1000 ease-in-out"
+                    style={{ width: currentPhase === 'COOLDOWN' ? '100%' : getProgressBarWidth(currentPhase) }}
+                  ></div>
+              </div>
+          </div>
+      )}
+    </div>
+  );
+};
+
+export default AutoPilotControls;

@@ -1,17 +1,25 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Card from '../Card';
 import { generateTrends } from '../../services/geminiService';
 
 interface TrendAgentProps {
   onTrendSelected: (trend: string) => void;
   addLog: (agent: string, action: string) => void;
+  autoTrend?: string; // New prop for Auto-Pilot integration
 }
 
-const TrendAgent: React.FC<TrendAgentProps> = ({ onTrendSelected, addLog }) => {
+const TrendAgent: React.FC<TrendAgentProps> = ({ onTrendSelected, addLog, autoTrend }) => {
   const [niche, setNiche] = useState('Công nghệ AI');
   const [trends, setTrends] = useState<{ text: string; urls: string[] } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // React to auto-detected trends from the Master Brain
+  useEffect(() => {
+      if (autoTrend) {
+          setTrends({ text: autoTrend, urls: [] });
+      }
+  }, [autoTrend]);
 
   const handleScan = async () => {
     setIsLoading(true);
@@ -52,7 +60,7 @@ const TrendAgent: React.FC<TrendAgentProps> = ({ onTrendSelected, addLog }) => {
         </div>
 
         {trends && (
-            <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-700 space-y-3">
+            <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-700 space-y-3 animate-fade-in">
                 <div className="text-sm text-gray-300 whitespace-pre-wrap max-h-40 overflow-y-auto">
                     {trends.text}
                 </div>
@@ -70,7 +78,6 @@ const TrendAgent: React.FC<TrendAgentProps> = ({ onTrendSelected, addLog }) => {
                 )}
                 <button
                     onClick={() => {
-                        // Extract a simple trend topic from the first line or just pass the niche + trend
                         onTrendSelected(`Tin tức mới nhất về ${niche}: ${trends.text.substring(0, 50)}...`);
                     }}
                     className="w-full mt-2 bg-gray-700 hover:bg-gray-600 text-sm py-2 rounded text-blue-300 border border-blue-900/30"

@@ -1,8 +1,9 @@
 
-import React, { useState } from 'react';
-import type { UserProfile, ScheduledPost, ActivityLog } from '../types';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import type { UserProfile, ScheduledPost, ActivityLog, AutoPilotConfig, AutoPilotPhase } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import Header from './Header';
+import AutoPilotControls from './AutoPilotControls';
 import ContentAgent from './agents/ContentAgent';
 import ImageAgent from './agents/ImageAgent';
 import SchedulerAgent from './agents/SchedulerAgent';
@@ -11,8 +12,16 @@ import GroupAgent from './agents/GroupAgent';
 import ActivityLogFeed from './ActivityLogFeed';
 import VideoAgent from './agents/VideoAgent';
 import AnalyticsAgent from './agents/AnalyticsAgent';
-import TrendAgent from './agents/TrendAgent'; // New
-import InboxAgent from './agents/InboxAgent'; // New
+import TrendAgent from './agents/TrendAgent';
+import InboxAgent from './agents/InboxAgent';
+
+// Services
+import { 
+    generateTrends, 
+    generateText, 
+    generateImagePromptFromContent, 
+    generateImage 
+} from '../services/geminiService';
 
 interface DashboardProps {
   user: UserProfile;
@@ -21,23 +30,32 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings }) => {
+  // --- Global State ---
+  const [posts, setPosts] = useLocalStorage<ScheduledPost[]>('scheduled-posts', []);
+  const [logs, setLogs] = useLocalStorage<ActivityLog[]>('activity-logs', []);
+  const [isAutoMode, setIsAutoMode] = useLocalStorage<boolean>('workflow-auto-mode', false);
+  
+  // --- Auto-Pilot Configuration & State ---
+  const [autoPilotConfig, setAutoPilotConfig] = useLocalStorage<AutoPilotConfig>('auto-pilot-config', {
+    niche: 'Công nghệ AI',
+    intervalMinutes: 60,
+    isActive: false
+  });
+  const [autoPilotPhase, setAutoPilotPhase] = useState<AutoPilotPhase>('IDLE');
+
+  // --- Intermediate Data (The "Flow" between modules) ---
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string>('');
+  const [detectedTrend, setDetectedTrend] = useState<string>('');
   
-  // Global Workflow Mode: Manual (false) vs Auto AI (true)
-  const [isAutoMode, setIsAutoMode] = useLocalStorage<boolean>('workflow-auto-mode', false);
-
-  // State lifted up for Voice/Trend integration
+  // Lifted state for manual overrides
   const [contentTopic, setContentTopic] = useState('');
   const [imagePrompt, setImagePrompt] = useState('');
 
-  const [posts, setPosts] = useLocalStorage<ScheduledPost[]>(
-    'scheduled-posts',
-    [],
-  );
-  const [logs, setLogs] = useLocalStorage<ActivityLog[]>('activity-logs', []);
+  // Refs for loop management
+  const autoPilotTimeoutRef = useRef<number | null>(null);
 
-  const addLog = (
+  const addLog = useCallback((
     agent: string,
     action: string,
     status: 'Success' | 'Error' = 'Success',
@@ -49,21 +67,105 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
       action,
       status,
     };
-    setLogs((prevLogs) => [newLog, ...prevLogs.slice(0, 49)]); // Keep last 50 logs
-  };
+    setLogs((prevLogs) => [newLog, ...prevLogs.slice(0, 49)]);
+  }, [setLogs]);
 
-  // Callback for Voice Commands from Header
+  // --- MASTER ORCHESTRATOR: THE BRAIN ---
+  const runAutoPilotCycle = useCallback(async () => {
+    if (!autoPilotConfig.isActive) return;
+
+    try {
+        // 1. SCANNING TRENDS
+        setAutoPilotPhase('SCANNING_TRENDS');
+        addLog('AutoPilot', `Bắt đầu chu trình mới. Đang quét xu hướng về "${autoPilotConfig.niche}"...`);
+        
+        const trendResult = await generateTrends(autoPilotConfig.niche);
+        const topTrend = trendResult.text.split('\n')[0] || trendResult.text; // Take first line/trend
+        setDetectedTrend(trendResult.text); // Update TrendAgent UI
+        addLog('TrendAgent', `[Auto] Phát hiện xu hướng: ${topTrend.substring(0, 50)}...`);
+
+        // 2. GENERATING CONTENT
+        setAutoPilotPhase('GENERATING_CONTENT');
+        const contentPrompt = `Write a short, engaging Facebook post about this trending topic: "${topTrend}". Use Vietnamese language.`;
+        const content = await generateText(contentPrompt);
+        setGeneratedContent(content); // Update ContentAgent UI
+        addLog('ContentAgent', `[Auto] Đã viết nội dung dựa trên xu hướng.`);
+
+        // 3. ANALYZING IMAGE
+        setAutoPilotPhase('ANALYZING_IMAGE_PROMPT');
+        const imgPrompt = await generateImagePromptFromContent(content);
+        setImagePrompt(imgPrompt); // Update ImageAgent UI
+        addLog('ImageAgent', `[Auto] Đã tạo prompt ảnh: ${imgPrompt.substring(0, 30)}...`);
+
+        // 4. GENERATING IMAGE
+        setAutoPilotPhase('GENERATING_IMAGE');
+        const imgUrl = await generateImage(imgPrompt);
+        if (imgUrl) {
+            setGeneratedImageUrl(imgUrl); // Update ImageAgent UI
+            addLog('ImageAgent', `[Auto] Đã vẽ xong ảnh minh họa.`);
+        } else {
+            addLog('ImageAgent', `[Auto] Lỗi tạo ảnh, sẽ đăng bài không ảnh.`, 'Error');
+        }
+
+        // 5. SCHEDULING
+        setAutoPilotPhase('SCHEDULING');
+        const newPost: ScheduledPost = {
+            id: Date.now().toString(),
+            content: content,
+            imageUrl: imgUrl || undefined,
+            scheduledTime: new Date(Date.now() + 10 * 60000).toLocaleString(), // Schedule for 10 mins later
+            status: 'Scheduled',
+        };
+        setPosts((prev) => [newPost, ...prev]);
+        addLog('SchedulerAgent', `[Auto] Đã lên lịch đăng bài thành công!`);
+
+        // 6. COOLDOWN
+        setAutoPilotPhase('COOLDOWN');
+        const nextRunMs = autoPilotConfig.intervalMinutes * 60 * 1000;
+        addLog('AutoPilot', `Hoàn tất chu trình. Nghỉ ${autoPilotConfig.intervalMinutes} phút.`);
+        
+        autoPilotTimeoutRef.current = window.setTimeout(() => {
+            runAutoPilotCycle();
+        }, nextRunMs);
+
+    } catch (error) {
+        addLog('AutoPilot', `Lỗi nghiêm trọng trong chu trình: ${(error as Error).message}`, 'Error');
+        setAutoPilotPhase('IDLE');
+        // Retry logic could go here, for now just stop or wait
+    }
+  }, [autoPilotConfig, addLog, setPosts]);
+
+  // Effect to Start/Stop the cycle
+  useEffect(() => {
+    if (autoPilotConfig.isActive) {
+        // If just activated and idle, start immediately
+        if (autoPilotPhase === 'IDLE') {
+            runAutoPilotCycle();
+        }
+    } else {
+        // Stop everything
+        if (autoPilotTimeoutRef.current) {
+            clearTimeout(autoPilotTimeoutRef.current);
+            autoPilotTimeoutRef.current = null;
+        }
+        setAutoPilotPhase('IDLE');
+    }
+    
+    return () => {
+        if (autoPilotTimeoutRef.current) {
+            clearTimeout(autoPilotTimeoutRef.current);
+        }
+    };
+  }, [autoPilotConfig.isActive, runAutoPilotCycle, autoPilotPhase]);
+
+
+  // --- Event Handlers ---
   const handleVoiceCommand = (transcript: string) => {
     const lower = transcript.toLowerCase();
     addLog('VoiceCommander', `Đã nhận lệnh: "${transcript}"`);
-
     if (lower.includes('tạo bài') || lower.includes('viết bài')) {
       const topic = transcript.replace(/(tạo bài viết về|viết bài về|tạo bài|viết bài)/i, '').trim();
-      if (topic) {
-        setContentTopic(topic);
-        // Reset after a short delay to allow re-triggering if needed, 
-        // though strictly React state update is enough.
-      }
+      if (topic) setContentTopic(topic);
     } else if (lower.includes('tạo ảnh') || lower.includes('vẽ')) {
        const prompt = transcript.replace(/(tạo ảnh|vẽ|tạo hình ảnh)/i, '').trim();
        if (prompt) setImagePrompt(prompt);
@@ -72,7 +174,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
 
   const handleTrendSelected = (trendText: string) => {
     setContentTopic(trendText);
-    // Scroll to top smooth
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -82,82 +183,65 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
         user={user} 
         onLogout={onLogout} 
         onOpenSettings={onOpenSettings || (() => {})}
-        onVoiceCommand={handleVoiceCommand} // Pass handler
+        onVoiceCommand={handleVoiceCommand} 
       />
-      <main className="p-4 sm:p-6 lg:p-8">
-        {/* Workflow Mode Controller */}
-        <div className="mb-8 bg-gray-800 rounded-xl border border-gray-700 p-4 flex flex-col sm:flex-row items-center justify-between shadow-lg">
-          <div className="mb-4 sm:mb-0">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              Chế độ Vận hành
-            </h2>
-            <p className="text-sm text-gray-400">Chọn cách hệ thống xử lý quy trình công việc</p>
-          </div>
-          <div className="bg-gray-700 p-1 rounded-lg flex">
-            <button
-              onClick={() => setIsAutoMode(false)}
-              className={`px-6 py-2 rounded-md text-sm font-semibold transition-all duration-200 ${
-                !isAutoMode 
-                  ? 'bg-gray-600 text-white shadow-md' 
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              ✋ Thủ công
-            </button>
-            <button
-              onClick={() => setIsAutoMode(true)}
-              className={`px-6 py-2 rounded-md text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
-                isAutoMode 
-                  ? 'bg-blue-600 text-white shadow-md' 
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              <span>🤖 Tự động AI</span>
-              {isAutoMode && (
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
-                </span>
-              )}
-            </button>
-          </div>
-        </div>
+      
+      <main className="p-4 sm:p-6 lg:p-8 max-w-8xl mx-auto">
+        
+        {/* TOP: Auto-Pilot Control Center */}
+        <AutoPilotControls 
+            config={autoPilotConfig} 
+            onUpdateConfig={setAutoPilotConfig}
+            currentPhase={autoPilotPhase}
+        />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column: Content Creation & Trends */}
-          <div className="lg:col-span-2 space-y-6">
-            <TrendAgent onTrendSelected={handleTrendSelected} addLog={addLog} />
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          
+          {/* LEFT: Generation Pipeline (Trend -> Content -> Image -> Schedule) */}
+          <div className="lg:col-span-8 space-y-6">
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <ContentAgent
-                onContentGenerated={setGeneratedContent}
-                addLog={addLog}
-                initialTopic={contentTopic}
-              />
-              <ImageAgent
-                onImageGenerated={setGeneratedImageUrl}
-                addLog={addLog}
-                initialPrompt={imagePrompt}
-                generatedContent={generatedContent} // Pass content to Image Agent
-              />
-            </div>
-            <SchedulerAgent
-              posts={posts}
-              setPosts={setPosts}
-              content={generatedContent}
-              imageUrl={generatedImageUrl}
-              addLog={addLog}
-              isAutoMode={isAutoMode} // Pass mode to scheduler
+            <TrendAgent 
+                onTrendSelected={handleTrendSelected} 
+                addLog={addLog} 
+                autoTrend={detectedTrend} // Pass auto-detected trend to UI
             />
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
+                {/* Connecting Line for Visual Flow */}
+                <div className="hidden md:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0 w-8 h-1 bg-gray-700"></div>
+
+                <ContentAgent
+                    onContentGenerated={setGeneratedContent}
+                    addLog={addLog}
+                    initialTopic={contentTopic}
+                    generatedContent={generatedContent} // Allow overriding state from AutoPilot
+                    isAutoGenerating={autoPilotPhase === 'GENERATING_CONTENT'}
+                />
+                
+                <ImageAgent
+                    onImageGenerated={setGeneratedImageUrl}
+                    addLog={addLog}
+                    initialPrompt={imagePrompt}
+                    generatedContent={generatedContent}
+                    generatedImage={generatedImageUrl} // Allow overriding state from AutoPilot
+                    isAutoGenerating={autoPilotPhase === 'GENERATING_IMAGE' || autoPilotPhase === 'ANALYZING_IMAGE_PROMPT'}
+                />
+            </div>
+
+            <SchedulerAgent
+                posts={posts}
+                setPosts={setPosts}
+                content={generatedContent}
+                imageUrl={generatedImageUrl}
+                addLog={addLog}
+                isAutoMode={isAutoMode}
+            />
+
             <VideoAgent addLog={addLog} />
           </div>
 
-          {/* Right Column: Interaction & Analytics */}
-          <div className="space-y-6">
+          {/* RIGHT: Engagement & Analytics */}
+          <div className="lg:col-span-4 space-y-6">
             <InboxAgent addLog={addLog} />
             <InteractionAgent addLog={addLog} />
             <GroupAgent addLog={addLog} />
