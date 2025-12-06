@@ -41,59 +41,72 @@ const getGenAIInstance = (): GoogleGenAI => {
 // Helper for retries with exponential backoff and smart delay parsing
 const retryOperation = async <T>(
   operation: () => Promise<T>,
-  retries: number = 5, // Increased retries for rate limits
+  retries: number = 10, // Increased retries for rate limits
   delay: number = 5000 // Increased base delay
 ): Promise<T> => {
-  try {
-    return await operation();
-  } catch (error: any) {
-    let errorMessage = error.message || '';
+  let lastError: any;
 
-    // Attempt to parse stringified JSON error message to get the inner details
-    if (typeof errorMessage === 'string' && errorMessage.trim().startsWith('{')) {
-        try {
-            const parsed = JSON.parse(errorMessage);
-            if (parsed.error && parsed.error.message) {
-                errorMessage = parsed.error.message;
-            }
-        } catch (e) {
-            // Ignore parse error, use original string
-        }
-    }
-
-    const isRateLimit =
-      error?.status === 429 ||
-      error?.code === 429 ||
-      errorMessage.includes('429') ||
-      errorMessage.includes('Too Many Requests') ||
-      error?.status === 'RESOURCE_EXHAUSTED' ||
-      errorMessage.includes('RESOURCE_EXHAUSTED') ||
-      errorMessage.includes('quota');
-
-    if (isRateLimit && retries > 0) {
-      let waitTime = delay;
-
-      // Smart Retry: Extract "Please retry in X s" from the error message
-      const match = errorMessage.match(/retry in (\d+(\.\d+)?)s/);
-      if (match) {
-        // Parse seconds to ms and add 1s buffer
-        const secondsToWait = parseFloat(match[1]);
-        waitTime = Math.ceil(secondsToWait * 1000) + 1000;
-        console.warn(`Rate limit hit. API requested wait. Sleeping for ${waitTime}ms.`);
-      } else {
-        console.warn(`Rate limit hit. Retrying in ${waitTime}ms... (${retries} attempts left)`);
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      
+      // 1. Extract detailed error message
+      let errorMessage = error.message || '';
+      
+      // Attempt to parse stringified JSON error message to get the inner details
+      if (typeof errorMessage === 'string') {
+          // Look for JSON pattern, use dotall match to capture across newlines
+          const jsonMatch = errorMessage.match(/(\{.*\})/s);
+          if (jsonMatch) {
+              try {
+                  const parsed = JSON.parse(jsonMatch[0]);
+                  if (parsed.error && parsed.error.message) {
+                      errorMessage = parsed.error.message;
+                  } else if (parsed.message) {
+                      errorMessage = parsed.message;
+                  }
+              } catch (e) {
+                  // Ignore parse error
+              }
+          }
       }
 
-      await new Promise((resolve) => setTimeout(resolve, waitTime));
+      // 2. Detect Rate Limit
+      const isRateLimit =
+        error?.status === 429 ||
+        error?.code === 429 ||
+        errorMessage.includes('429') ||
+        errorMessage.includes('Too Many Requests') ||
+        error?.status === 'RESOURCE_EXHAUSTED' ||
+        errorMessage.includes('RESOURCE_EXHAUSTED') ||
+        errorMessage.includes('quota');
+
+      if (isRateLimit && attempt < retries) {
+        let waitTime = delay * Math.pow(1.5, attempt); // Standard exponential
+
+        // 3. Smart Retry: Extract "Please retry in X s" from the error message
+        // Regex handles "retry in 58.76s" or "retry in 58s"
+        const match = errorMessage.match(/retry in\s+(\d+(\.\d+)?)\s*s/i);
+        if (match) {
+          const secondsToWait = parseFloat(match[1]);
+          // Add 2 seconds buffer to be safe against server/client clock drift
+          waitTime = Math.ceil(secondsToWait * 1000) + 2000;
+          console.warn(`[Gemini Service] Rate limit hit. API requested wait: ${secondsToWait}s. Sleeping for ${waitTime}ms.`);
+        } else {
+          console.warn(`[Gemini Service] Rate limit hit. Retrying in ${waitTime}ms... (Attempt ${attempt + 1}/${retries})`);
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
+        continue;
+      }
       
-      // If we found a specific time, use standard exponential backoff for the NEXT try relative to base delay
-      // Otherwise double the current delay
-      const nextDelay = match ? delay * 2 : delay * 1.5;
-      
-      return retryOperation(operation, retries - 1, nextDelay);
+      // If we are here, it's either not a rate limit or we ran out of retries
+      throw error;
     }
-    throw error;
   }
+  throw lastError;
 };
 
 export const generateText = async (prompt: string): Promise<string> => {
@@ -431,11 +444,6 @@ export const generateVideo = async (
   }
 };
 
-export interface TrendResult {
-  text: string;
-  urls: string[];
-}
-
 export const generateTrends = async (niche: string): Promise<TrendResult> => {
   try {
     const ai = getGenAIInstance();
@@ -498,4 +506,9 @@ export const analyzeSentimentAndReply = async (comment: string): Promise<{ senti
      console.error('Error analyzing sentiment:', error);
      return { sentiment: 'Error', reply: 'Lỗi kết nối AI.' };
   }
+}
+
+export interface TrendResult {
+  text: string;
+  urls: string[];
 }
