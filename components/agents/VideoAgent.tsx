@@ -1,8 +1,6 @@
-
-
 import React, { useState, useRef, useEffect } from 'react';
 import Card from '../Card';
-import { generateVideo, ApiKeyError } from '../../services/geminiService';
+import { generateVideo, ApiKeyError, VideoConfig } from '../../services/geminiService';
 import { VideoIcon } from '../icons/VideoIcon';
 
 interface VideoAgentProps {
@@ -23,25 +21,14 @@ const fileToBase64 = (file: File): Promise<string> =>
   });
 
 const loadingMessages = [
-  'Đang liên hệ mô hình VEO...',
-  'Đang dựng kịch bản cho mô tả của bạn...',
-  'Đang kết xuất các khung hình đầu tiên...',
-  'Quá trình này có thể mất vài phút...',
-  'Đang áp dụng hiệu ứng hình ảnh...',
-  'Đang hoàn thiện video...',
-  'Sắp xong rồi...',
+  'Đang kết nối siêu máy tính VEO 3.1...',
+  'Đang dựng kịch bản 3D & Ánh sáng...',
+  'Đang render khung hình (Ray Tracing)...',
+  'Đang xử lý chuyển động vật lý...',
+  'Đang áp dụng bộ lọc điện ảnh...',
+  'Đang xuất bản video độ phân giải cao...',
+  'Gần xong rồi, video của bạn sẽ rất tuyệt...',
 ];
-
-// FIX: Removed duplicate global `aistudio` type declaration.
-// This type is assumed to be provided by the AI Studio environment.
-// declare global {
-//   interface Window {
-//     aistudio: {
-//       hasSelectedApiKey: () => Promise<boolean>;
-//       openSelectKey: () => Promise<void>;
-//     };
-//   }
-// }
 
 const VideoAgent: React.FC<VideoAgentProps> = ({ addLog }) => {
   const [prompt, setPrompt] = useState('');
@@ -52,6 +39,11 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog }) => {
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageIntervalRef = useRef<number | null>(null);
+
+  // Video Configuration State
+  const [modelMode, setModelMode] = useState<'fast' | 'quality'>('fast');
+  const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>('16:9');
+  const [resolution, setResolution] = useState<'720p' | '1080p'>('720p');
 
   // New state for API key handling
   const [needsApiKeySelection, setNeedsApiKeySelection] = useState(false);
@@ -69,20 +61,19 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog }) => {
           );
         }
       } else {
-        // Fallback for environments where window.aistudio is not available (e.g., local dev without AI Studio platform)
-        // If process.env.API_KEY is defined, assume it's set.
+        // Fallback for environments where window.aistudio is not available
         if (process.env.API_KEY) {
           setHasApiKeySelected(true);
         } else {
           setNeedsApiKeySelection(true);
           setError(
-            'API_KEY chưa được cấu hình. Để tạo video, bạn cần chọn Khóa API từ AI Studio hoặc cấu hình biến môi trường VITE_API_KEY. Khóa này phải được liên kết với một dự án GCP có tính năng thanh toán được bật.'
+            'API_KEY chưa được cấu hình. Để tạo video, bạn cần chọn Khóa API từ AI Studio.'
           );
         }
       }
     };
     checkApiKeyStatus();
-  }, []); // Run once on mount
+  }, []);
 
   useEffect(() => {
     if (isLoading) {
@@ -133,18 +124,16 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog }) => {
     if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
       try {
         await window.aistudio.openSelectKey();
-        // As per guideline, assume success immediately after opening the dialog.
         setHasApiKeySelected(true);
         setNeedsApiKeySelection(false);
         setError(null);
-        // User can now try to generate the video again.
       } catch (err) {
         console.error('Error opening API key selection:', err);
         setError('Không thể mở hộp thoại chọn Khóa API. Vui lòng thử lại.');
-        setNeedsApiKeySelection(true); // Keep prompt visible if dialog failed to open
+        setNeedsApiKeySelection(true);
       }
     } else {
-      setError('window.aistudio API không có sẵn. Vui lòng đảm bảo bạn đang chạy trong môi trường AI Studio.');
+      setError('window.aistudio API không có sẵn.');
       setNeedsApiKeySelection(true);
     }
   };
@@ -152,19 +141,18 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog }) => {
   const handleGenerate = async () => {
     if (!prompt) return;
 
-    // Check API key before starting generation
     if (!hasApiKeySelected) {
       setNeedsApiKeySelection(true);
-      setError(
-        'Bạn cần chọn Khóa API để tạo video. Vui lòng nhấp vào nút "Chọn Khóa API" bên dưới.'
-      );
+      setError('Bạn cần chọn Khóa API để tạo video.');
       return;
     }
 
     setIsLoading(true);
     setError(null);
     setGeneratedVideoUrl('');
-    addLog('VideoAgent', `Bắt đầu tạo video cho "${prompt}"`);
+    
+    const modelNameDisplay = modelMode === 'quality' ? 'Veo 3.1 Cinematic' : 'Veo 3.1 Fast';
+    addLog('VideoAgent', `Bắt đầu tạo video (${modelNameDisplay}, ${resolution}) cho "${prompt}"`);
 
     try {
       const imagePayload = image
@@ -174,17 +162,22 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog }) => {
           }
         : null;
 
-      const result = await generateVideo(prompt, imagePayload);
+      const config: VideoConfig = {
+          model: modelMode === 'quality' ? 'veo-3.1-generate-preview' : 'veo-3.1-fast-generate-preview',
+          aspectRatio: aspectRatio,
+          resolution: resolution
+      };
+
+      const result = await generateVideo(prompt, imagePayload, config);
       setGeneratedVideoUrl(result);
       addLog('VideoAgent', `Tạo video thành công`);
     } catch (err) {
       if (err instanceof ApiKeyError) {
-        setNeedsApiKeySelection(true); // Always show selection prompt for ApiKeyError
+        setNeedsApiKeySelection(true);
         setError(err.message);
         addLog('VideoAgent', `Tạo video thất bại: ${err.message}`, 'Error');
       } else {
-        const errorMessage =
-          (err as Error).message || 'Đã xảy ra lỗi không xác định.';
+        const errorMessage = (err as Error).message || 'Đã xảy ra lỗi không xác định.';
         setError(errorMessage);
         addLog('VideoAgent', `Tạo video thất bại: ${errorMessage}`, 'Error');
       }
@@ -194,17 +187,17 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog }) => {
   };
 
   return (
-    <Card title="Trợ lý Video" icon={<VideoIcon />}>
+    <Card title="Trợ lý Video (Veo 3.1)" icon={<VideoIcon />}>
       <div className="space-y-4">
         <p className="text-sm text-gray-400">
-          Tạo video ấn tượng từ mô tả văn bản, có thể kèm theo hình ảnh tham khảo.
+          Tạo video chất lượng điện ảnh bằng <b>Google Veo 3.1</b>.
         </p>
 
         {needsApiKeySelection && (
           <div className="bg-orange-900/40 border border-orange-700 text-orange-200 p-4 rounded-lg space-y-3" role="alert" aria-live="polite">
             <p className="font-semibold">Yêu cầu Khóa API:</p>
             <p className="text-sm">
-              Để sử dụng tính năng tạo video (với mô hình Veo), bạn phải chọn một Khóa API được liên kết với một dự án Google Cloud có tính năng thanh toán được bật.
+              Để sử dụng tính năng tạo video, bạn phải chọn một Khóa API được liên kết với một dự án Google Cloud có tính năng thanh toán được bật.
             </p>
             {error && <p className="text-red-300 text-xs italic">{error}</p>}
             <button
@@ -214,23 +207,61 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog }) => {
             >
               Chọn Khóa API
             </button>
-            <p className="text-xs text-gray-400">
-              Tìm hiểu thêm về thanh toán tại{' '}
-              <a
-                href="https://ai.google.dev/gemini-api/docs/billing"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-400 hover:underline"
-              >
-                ai.google.dev/gemini-api/docs/billing
-              </a>
-            </p>
           </div>
         )}
 
+        {/* Configuration Controls */}
+        <div className="bg-gray-800/50 p-3 rounded-lg border border-gray-700 grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+                <label className="text-[10px] uppercase text-gray-500 font-bold mb-1 block">Mô hình AI</label>
+                <div className="flex bg-gray-700 rounded-md p-1">
+                    <button 
+                        onClick={() => setModelMode('fast')}
+                        disabled={isLoading}
+                        className={`flex-1 text-xs py-1.5 rounded transition ${modelMode === 'fast' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                    >
+                        Veo 3.1 Fast (Tốc độ)
+                    </button>
+                    <button 
+                        onClick={() => setModelMode('quality')}
+                        disabled={isLoading}
+                        className={`flex-1 text-xs py-1.5 rounded transition ${modelMode === 'quality' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                    >
+                        Veo 3.1 Cinematic (HQ)
+                    </button>
+                </div>
+            </div>
+            
+            <div>
+                 <label className="text-[10px] uppercase text-gray-500 font-bold mb-1 block">Tỷ lệ khung hình</label>
+                 <select 
+                    value={aspectRatio}
+                    onChange={(e) => setAspectRatio(e.target.value as any)}
+                    disabled={isLoading}
+                    className="w-full bg-gray-700 border border-gray-600 text-white text-xs rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-500"
+                 >
+                     <option value="16:9">16:9 (Ngang - Youtube)</option>
+                     <option value="9:16">9:16 (Dọc - Tiktok/Reels)</option>
+                 </select>
+            </div>
+            
+            <div>
+                 <label className="text-[10px] uppercase text-gray-500 font-bold mb-1 block">Độ phân giải</label>
+                 <select 
+                    value={resolution}
+                    onChange={(e) => setResolution(e.target.value as any)}
+                    disabled={isLoading}
+                    className="w-full bg-gray-700 border border-gray-600 text-white text-xs rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-500"
+                 >
+                     <option value="720p">720p (HD)</option>
+                     <option value="1080p">1080p (Full HD)</option>
+                 </select>
+            </div>
+        </div>
+
         <div>
           <label className="text-xs text-gray-400 block mb-1">
-            Hình ảnh tham khảo (Tùy chọn)
+            Khung hình bắt đầu (Image-to-Video) <span className="text-gray-500 italic">- Tùy chọn</span>
           </label>
           <div className="p-4 bg-gray-900/50 border-2 border-dashed border-gray-600 rounded-lg">
             {image && (
@@ -239,8 +270,9 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog }) => {
                   <img
                     src={image.previewUrl}
                     alt="preview"
-                    className="w-full h-20 object-cover rounded-md"
+                    className="w-full h-20 object-cover rounded-md border border-gray-500"
                   />
+                  <div className="absolute top-1 left-1 bg-black/70 text-[10px] px-1 rounded text-white font-bold">START FRAME</div>
                   <button
                     onClick={removeImage}
                     className="absolute top-0 right-0 m-1 bg-red-600/70 hover:bg-red-600 rounded-full p-0.5 text-white opacity-0 group-hover:opacity-100 transition-opacity"
@@ -273,10 +305,22 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog }) => {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={!!image || isLoading || needsApiKeySelection}
-              className="w-full text-sm text-center py-2 bg-gray-700 hover:bg-gray-600 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full text-sm text-center py-2 bg-gray-700 hover:bg-gray-600 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              {image ? 'Thay đổi ảnh' : 'Tải ảnh lên'}
+              {image ? (
+                  'Thay đổi ảnh bắt đầu'
+              ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    Tải lên ảnh bắt đầu
+                  </>
+              )}
             </button>
+            <p className="text-[10px] text-gray-500 mt-2 text-center">
+                Veo sẽ tạo video chuyển động nối tiếp từ hình ảnh này.
+            </p>
           </div>
         </div>
 
@@ -284,7 +328,7 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog }) => {
           type="text"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Nhập mô tả video (ví dụ: 'một con mèo robot lái ô tô')"
+          placeholder={image ? "Mô tả cách hình ảnh chuyển động..." : "Nhập mô tả video (ví dụ: 'một con mèo robot lái ô tô')"}
           className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           disabled={needsApiKeySelection}
         />
@@ -292,9 +336,9 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog }) => {
         <button
           onClick={handleGenerate}
           disabled={isLoading || !prompt || needsApiKeySelection}
-          className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-md transition disabled:bg-red-800 disabled:cursor-not-allowed flex items-center justify-center"
+          className={`w-full text-white font-semibold py-2 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center ${modelMode === 'quality' ? 'bg-gradient-to-r from-red-600 to-purple-600 hover:from-red-700 hover:to-purple-700' : 'bg-red-600 hover:bg-red-700'}`}
         >
-          {isLoading ? 'Đang tạo Video...' : 'Tạo Video'}
+          {isLoading ? 'Đang tạo Video...' : `Tạo Video (${modelMode === 'quality' ? 'Cinematic' : 'Fast'})`}
         </button>
 
         {(isLoading || generatedVideoUrl || error) && (
@@ -321,18 +365,19 @@ const VideoAgent: React.FC<VideoAgentProps> = ({ addLog }) => {
                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                   ></path>
                 </svg>
-                <p className="mt-4 text-sm text-gray-300">{loadingMessage}</p>
+                <p className="mt-4 text-sm text-gray-300 animate-pulse">{loadingMessage}</p>
+                <p className="mt-1 text-xs text-gray-500">(Thời gian ước tính: 1-3 phút)</p>
               </div>
             )}
             {generatedVideoUrl && !isLoading && (
               <video
                 src={generatedVideoUrl}
                 controls
-                className="w-full h-full object-contain rounded-md"
+                className="w-full h-full object-contain rounded-md shadow-lg"
               />
             )}
-            {error && !isLoading && !needsApiKeySelection && ( // Only show generic error if not a key selection issue
-              <p className="text-red-400 text-sm text-center">{error}</p>
+            {error && !isLoading && !needsApiKeySelection && (
+              <p className="text-red-400 text-sm text-center px-4">{error}</p>
             )}
           </div>
         )}

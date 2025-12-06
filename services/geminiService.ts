@@ -187,23 +187,36 @@ export const generateImage = async (
   }
 };
 
-interface ImagePayload {
+export interface ImagePayload {
   imageBytes: string;
   mimeType: string;
+}
+
+export interface VideoConfig {
+  model: 'veo-3.1-fast-generate-preview' | 'veo-3.1-generate-preview';
+  resolution: '720p' | '1080p';
+  aspectRatio: '16:9' | '9:16';
 }
 
 export const generateVideo = async (
   prompt: string,
   image: ImagePayload | null = null,
+  config: VideoConfig = {
+    model: 'veo-3.1-fast-generate-preview',
+    resolution: '720p',
+    aspectRatio: '16:9'
+  }
 ): Promise<string> => {
   try {
     const ai = getGenAIInstance(); // Get fresh instance with latest API key
 
     const payload: any = {
-      model: 'veo-3.1-fast-generate-preview',
+      model: config.model,
       prompt,
       config: {
         numberOfVideos: 1,
+        resolution: config.resolution,
+        aspectRatio: config.aspectRatio,
       },
     };
 

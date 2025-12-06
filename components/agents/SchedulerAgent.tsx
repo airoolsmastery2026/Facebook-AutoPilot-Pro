@@ -12,7 +12,7 @@ interface SchedulerAgentProps {
   content: string;
   imageUrl: string;
   addLog: (agent: string, action: string) => void;
-  isAutoMode: boolean; // New prop
+  isAutoMode: boolean;
 }
 
 const statusDisplayMap: Record<
@@ -45,6 +45,10 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
     new Date(Date.now() + 3600 * 1000).toISOString().slice(0, 16),
   );
 
+  // State for rescheduling functionality
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editTimeValue, setEditTimeValue] = useState<string>('');
+
   // Automation Logic: Check for due posts every 3 seconds
   useEffect(() => {
     const checkInterval = setInterval(() => {
@@ -72,7 +76,6 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
         // 2. Update Status in State
         setPosts(currentPosts => 
           currentPosts.map(post => {
-            // Check if this specific post is in the due list
             if (duePosts.some(p => p.id === post.id)) {
               return { ...post, status: 'Posted' };
             }
@@ -83,7 +86,7 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
     }, 3000);
 
     return () => clearInterval(checkInterval);
-  }, [posts, setPosts, addLog, isAutoMode]); // Depend on isAutoMode
+  }, [posts, setPosts, addLog, isAutoMode]);
 
   const handleSchedule = () => {
     if (!content) {
@@ -94,7 +97,6 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
       id: Date.now().toString(),
       content: content.substring(0, 100) + (content.length > 100 ? '...' : ''),
       imageUrl,
-      // Store as locale string for display, but Date constructor can parse it back
       scheduledTime: new Date(scheduleTime).toLocaleString(),
       status: 'Scheduled',
     };
@@ -112,10 +114,46 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
       ),
     );
     const statusText = newStatus === 'Posted' ? 'Đã đăng' : 'Thất bại';
+    const actionPrefix = isAutoMode ? '[Thủ công (Override)]' : '[Thủ công]';
     addLog(
       'SchedulerAgent',
-      `[Thủ công] Cập nhật bài đăng thành '${statusText}'`,
+      `${actionPrefix} Cập nhật bài đăng thành '${statusText}'`,
     );
+  };
+
+  // --- Reschedule Logic ---
+
+  const startRescheduling = (post: ScheduledPost) => {
+    setEditingPostId(post.id);
+    // Try to convert stored locale string back to ISO for input
+    try {
+        const dateObj = new Date(post.scheduledTime);
+        // Handle timezone offset to ensure input shows correct local time
+        const tzOffset = dateObj.getTimezoneOffset() * 60000;
+        const localISOTime = new Date(dateObj.getTime() - tzOffset).toISOString().slice(0, 16);
+        setEditTimeValue(localISOTime);
+    } catch (e) {
+        setEditTimeValue(new Date().toISOString().slice(0, 16));
+    }
+  };
+
+  const saveReschedule = (postId: string) => {
+      if (!editTimeValue) return;
+      const newTimeDisplay = new Date(editTimeValue).toLocaleString();
+      
+      setPosts(prev => prev.map(p => 
+        p.id === postId 
+            ? { ...p, scheduledTime: newTimeDisplay } 
+            : p
+      ));
+      
+      addLog('SchedulerAgent', `[Thủ công] Đã đổi giờ đăng bài sang: ${newTimeDisplay}`);
+      setEditingPostId(null);
+  };
+
+  const cancelReschedule = () => {
+      setEditingPostId(null);
+      setEditTimeValue('');
   };
 
   return (
@@ -173,55 +211,89 @@ const SchedulerAgent: React.FC<SchedulerAgentProps> = ({
                 className: 'bg-gray-800/50 text-gray-300 border-gray-700',
               };
               
-              // Determine if we should show manual controls
-              // Show if: Status is 'Scheduled' AND (Mode is Manual OR We want to allow manual override anyway)
-              // Currently always showing manual controls for 'Scheduled' posts gives users power to force-post even in auto mode, 
-              // but mostly useful in Manual mode.
               const isScheduled = post.status === 'Scheduled';
+              const isEditing = editingPostId === post.id;
 
               return (
                 <div
                   key={post.id}
-                  className="bg-gray-700/50 p-3 rounded-lg flex items-center justify-between"
+                  className="bg-gray-700/50 p-3 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                 >
-                  <div className="flex items-center space-x-3">
+                  <div className="flex items-start sm:items-center space-x-3 flex-1 min-w-0">
                     {post.imageUrl && (
                       <img
                         src={post.imageUrl}
                         alt="Post preview"
-                        className="w-10 h-10 rounded-md object-cover"
+                        className="w-10 h-10 rounded-md object-cover flex-shrink-0"
                       />
                     )}
-                    <div>
-                      <p className="text-sm font-medium text-gray-300">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-gray-300 truncate" title={post.content}>
                         {post.content}
                       </p>
-                      <p className="text-xs text-gray-400">
-                        {post.scheduledTime}
-                      </p>
+                      
+                      {/* Date Display or Edit Input */}
+                      {isEditing ? (
+                          <div className="flex items-center gap-2 mt-1">
+                              <input 
+                                type="datetime-local"
+                                value={editTimeValue}
+                                onChange={(e) => setEditTimeValue(e.target.value)}
+                                className="text-xs bg-gray-900 border border-blue-500 rounded px-1 py-0.5 text-white"
+                              />
+                              <button onClick={() => saveReschedule(post.id)} className="text-green-400 hover:text-green-300" title="Lưu">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                              <button onClick={cancelReschedule} className="text-red-400 hover:text-red-300" title="Hủy">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                          </div>
+                      ) : (
+                        <p className="text-xs text-gray-400">
+                            {post.scheduledTime}
+                        </p>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center space-x-2 flex-shrink-0">
+
+                  <div className="flex items-center space-x-2 flex-shrink-0 self-end sm:self-center">
                     {isScheduled ? (
                       <>
+                        {!isEditing && (
+                            <button
+                                onClick={() => startRescheduling(post)}
+                                className="p-1.5 text-gray-300 hover:text-blue-300 hover:bg-gray-600 rounded transition"
+                                title="Đổi giờ (Lên lịch lại)"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </button>
+                        )}
+                        
                         <button
                           onClick={() => handleUpdateStatus(post.id, 'Posted')}
-                          className="px-2 py-1 text-xs font-semibold text-white bg-green-600 hover:bg-green-700 rounded-md transition"
-                          title="Đăng ngay (Thủ công)"
+                          className="px-2 py-1 text-xs font-semibold text-white bg-green-600 hover:bg-green-700 rounded-md transition whitespace-nowrap"
+                          title="Bỏ qua lịch trình và đăng ngay lập tức"
                         >
-                          Đăng
+                          Đăng Ngay
                         </button>
+                        
                         <button
                           onClick={() => handleUpdateStatus(post.id, 'Failed')}
-                          className="px-2 py-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-md transition"
-                          title="Hủy / Lỗi"
+                          className="px-2 py-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-md transition whitespace-nowrap"
+                          title="Hủy bài đăng này"
                         >
                           Hủy
                         </button>
                       </>
                     ) : (
                       <span
-                        className={`text-xs px-2 py-1 border rounded-full ${displayInfo.className}`}
+                        className={`text-xs px-2 py-1 border rounded-full whitespace-nowrap ${displayInfo.className}`}
                       >
                         {displayInfo.text}
                       </span>
