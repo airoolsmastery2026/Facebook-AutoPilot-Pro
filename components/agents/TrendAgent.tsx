@@ -1,11 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import Card from '../Card';
-import { generateTrends } from '../../services/geminiService';
+import { generateTrends, suggestRelatedNiches, ApiKeyError } from '../../services/geminiService';
 
 interface TrendAgentProps {
   onTrendSelected: (trend: string) => void;
-  addLog: (agent: string, action: string) => void;
+  addLog: (agent: string, action: string, status?: 'Success' | 'Error') => void;
   autoTrend?: string; // New prop for Auto-Pilot integration
 }
 
@@ -13,6 +12,10 @@ const TrendAgent: React.FC<TrendAgentProps> = ({ onTrendSelected, addLog, autoTr
   const [niche, setNiche] = useState('Công nghệ AI');
   const [trends, setTrends] = useState<{ text: string; urls: string[] } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Suggestion State
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [isSuggesting, setIsSuggesting] = useState(false);
 
   // React to auto-detected trends from the Master Brain
   useEffect(() => {
@@ -29,10 +32,28 @@ const TrendAgent: React.FC<TrendAgentProps> = ({ onTrendSelected, addLog, autoTr
         setTrends(result);
         addLog('TrendAgent', `Đã quét xu hướng cho "${niche}"`);
     } catch (error) {
-        addLog('TrendAgent', `Lỗi quét xu hướng: ${(error as Error).message}`);
+        if (error instanceof ApiKeyError) {
+             addLog('TrendAgent', `Lỗi: ${(error as Error).message}`, 'Error');
+        } else {
+             addLog('TrendAgent', `Lỗi quét xu hướng: ${(error as Error).message}`, 'Error');
+        }
     } finally {
         setIsLoading(false);
     }
+  };
+
+  const handleSuggest = async () => {
+      if (!niche) return;
+      setIsSuggesting(true);
+      try {
+          const results = await suggestRelatedNiches(niche);
+          setSuggestions(results);
+          addLog('TrendAgent', `Đã gợi ý các chủ đề liên quan đến "${niche}"`);
+      } catch (e) {
+          addLog('TrendAgent', 'Lỗi lấy gợi ý.', 'Error');
+      } finally {
+          setIsSuggesting(false);
+      }
   };
 
   const GlobeIcon = () => (
@@ -48,13 +69,25 @@ const TrendAgent: React.FC<TrendAgentProps> = ({ onTrendSelected, addLog, autoTr
           Sử dụng <b>Google Search Grounding</b> để tìm nội dung nóng hổi theo thời gian thực.
         </p>
         <div className="flex gap-2">
-            <input
-            type="text"
-            value={niche}
-            onChange={(e) => setNiche(e.target.value)}
-            placeholder="Lĩnh vực (ví dụ: Bóng đá, Thời trang)"
-            className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
+            <div className="flex-1 relative">
+                <input
+                type="text"
+                value={niche}
+                onChange={(e) => setNiche(e.target.value)}
+                placeholder="Lĩnh vực (ví dụ: Bóng đá, Thời trang)"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+            </div>
+            
+            <button
+            onClick={handleSuggest}
+            disabled={isSuggesting || !niche}
+            className="bg-gray-700 hover:bg-gray-600 text-blue-300 font-medium py-2 px-3 rounded-md transition disabled:opacity-50 text-sm"
+            title="Gợi ý chủ đề liên quan bằng AI"
+            >
+             {isSuggesting ? '...' : '🤖 Gợi ý'}
+            </button>
+
             <button
             onClick={handleScan}
             disabled={isLoading}
@@ -63,6 +96,21 @@ const TrendAgent: React.FC<TrendAgentProps> = ({ onTrendSelected, addLog, autoTr
             {isLoading ? '...' : 'Quét'}
             </button>
         </div>
+
+        {/* Suggestions Chips */}
+        {suggestions.length > 0 && (
+            <div className="flex flex-wrap gap-2 animate-fade-in">
+                {suggestions.map((s, i) => (
+                    <button 
+                        key={i} 
+                        onClick={() => { setNiche(s); setSuggestions([]); }}
+                        className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-600 rounded-full px-3 py-1 transition"
+                    >
+                        + {s}
+                    </button>
+                ))}
+            </div>
+        )}
 
         {trends && (
             <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-700 space-y-3 animate-fade-in">

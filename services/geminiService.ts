@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Modality } from '@google/genai';
 import type {
   GenerateContentResponse,
@@ -147,6 +146,28 @@ export const suggestContentTopics = async (niche: string): Promise<string[]> => 
   } catch (error) {
     if (error instanceof ApiKeyError) throw error;
     console.error('Error suggesting topics:', error);
+    return [];
+  }
+};
+
+// NEW: Suggest related niches for Trend Agent
+export const suggestRelatedNiches = async (niche: string): Promise<string[]> => {
+  try {
+    const ai = getGenAIInstance();
+    const prompt = `Based on the topic "${niche}", suggest 5 specific, related sub-niches or search terms that are popular right now in Vietnam.
+    Output only the terms, comma separated.`;
+
+    const result = await retryOperation(async () => {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+      });
+      return response.text;
+    });
+
+    return result.split(',').map(s => s.trim()).filter(Boolean);
+  } catch (error) {
+    console.error('Error suggesting related niches:', error);
     return [];
   }
 };
@@ -335,12 +356,13 @@ export const generateThumbnail = async (title: string, niche: string): Promise<s
   try {
     const ai = getGenAIInstance();
     
-    // Prompt specifically for high CTR thumbnail style
-    const prompt = `Create a YouTube/Facebook video thumbnail for a video titled "${title}". 
-    The niche is "${niche}".
-    Style: High contrast, vibrant colors, "Clickbait" style, professional digital art, hyper-realistic, 4k resolution. 
-    Make it visually striking to get clicks. 
-    No text inside the image (text will be added as overlay).`;
+    // Prompt specifically optimized for High CTR, Vibrance, and High Contrast
+    const prompt = `Create a viral, high-CTR YouTube/Facebook video thumbnail for a video about "${niche}" with the title "${title}". 
+    Visual Style: High Contrast, Vibrant and Saturated Colors, Dramatic Lighting.
+    Composition: Central subject, clean background, rule of thirds, professional digital art, hyper-realistic, 4k resolution.
+    Emotion: Exciting, curious, or shocking.
+    Make it visually striking to stop the scroll.
+    IMPORTANT: No text inside the image (text will be added as overlay).`;
     
     // Thumbnails usually need high quality and 16:9 aspect ratio
     const config: any = {
@@ -350,19 +372,29 @@ export const generateThumbnail = async (title: string, niche: string): Promise<s
        }
     };
     
-    const response: GenerateContentResponse = await retryOperation(async () => {
-      return await ai.models.generateContent({
-        model: 'gemini-3-pro-image-preview', // Use Pro model for best thumbnail results
-        contents: { parts: [{ text: prompt }] },
-        config: config, 
-      });
-    });
+    // Auto-fallback: If Pro model fails (due to free key), use Flash Image
+    try {
+        const response: GenerateContentResponse = await retryOperation(async () => {
+          return await ai.models.generateContent({
+            model: 'gemini-3-pro-image-preview', // Use Pro model for best thumbnail results
+            contents: { parts: [{ text: prompt }] },
+            config: config, 
+          });
+        });
 
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        const base64ImageBytes: string = part.inlineData.data;
-        return `data:${part.inlineData.mimeType};base64,${base64ImageBytes}`;
-      }
+        for (const part of response.candidates?.[0]?.content?.parts || []) {
+          if (part.inlineData) {
+            const base64ImageBytes: string = part.inlineData.data;
+            return `data:${part.inlineData.mimeType};base64,${base64ImageBytes}`;
+          }
+        }
+    } catch (proError: any) {
+         // Fallback logic for free key users
+         if (proError.message?.includes('404') || proError.message?.includes('PERMISSION_DENIED') || proError.type === 'NOT_FOUND_404') {
+             console.warn("Pro model failed (likely free key). Falling back to Flash Image.");
+             return await generateImage(prompt, false); // Use standard flash generation
+         }
+         throw proError;
     }
     return null;
   } catch (error) {
@@ -380,9 +412,9 @@ export const generateImage = async (
     const ai = getGenAIInstance();
     
     // Select model based on quality preference
-    const modelName = useHighQuality ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
+    let modelName = useHighQuality ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
+    let config: any = {};
 
-    const config: any = {};
     if (useHighQuality) {
         // High quality model supports specific image sizing: 1K, 2K, 4K
         config.imageConfig = {
@@ -396,27 +428,37 @@ export const generateImage = async (
           { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
           { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
         ];
-    } else {
-        // Optimization for Speed (Flash Model)
-        // Ensure no heavy configs are passed that might slow it down
     }
 
-    const response: GenerateContentResponse = await retryOperation(async () => {
-      return await ai.models.generateContent({
-        model: modelName,
-        contents: {
-          parts: [{ text: prompt }],
-        },
-        config: config, 
-      });
-    });
+    try {
+        const response: GenerateContentResponse = await retryOperation(async () => {
+          return await ai.models.generateContent({
+            model: modelName,
+            contents: {
+              parts: [{ text: prompt }],
+            },
+            config: config, 
+          });
+        });
 
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        const base64ImageBytes: string = part.inlineData.data;
-        return `data:${part.inlineData.mimeType};base64,${base64ImageBytes}`;
-      }
+        for (const part of response.candidates?.[0]?.content?.parts || []) {
+          if (part.inlineData) {
+            const base64ImageBytes: string = part.inlineData.data;
+            return `data:${part.inlineData.mimeType};base64,${base64ImageBytes}`;
+          }
+        }
+    } catch (err: any) {
+        // === AUTO FALLBACK FOR FREE KEYS ===
+        // If the user tried "High Quality" (Pro) but failed with a Billing/Permission error (404/403),
+        // we automatically try again with the Free Tier model (Flash Image).
+        if (useHighQuality && (err.message?.includes('404') || err.message?.includes('PERMISSION_DENIED') || err.type === 'NOT_FOUND_404')) {
+            console.warn("High Quality Image Gen failed (Billing/Permission). Automatically falling back to Free Tier (Flash Image).");
+            // Recursive call forcing low quality
+            return await generateImage(prompt, false);
+        }
+        throw err;
     }
+
     return null; // Should not happen if API call is successful
   } catch (error) {
     if (error instanceof ApiKeyError) {

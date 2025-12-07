@@ -63,6 +63,7 @@ export interface AppBackup {
   settings: {
     apiKey: string;
     facebookAccounts: FacebookAccount[];
+    appUsers: AppCredentials[]; // Added App Users to backup
     autoPilotConfig: AutoPilotConfig;
     interests: string;
     enableLikes: boolean;

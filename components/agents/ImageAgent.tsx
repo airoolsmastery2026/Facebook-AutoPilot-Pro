@@ -83,14 +83,6 @@ const ImageAgent: React.FC<ImageAgentProps> = ({
     }
   }, [generatedContent, addLog]);
 
-  // Automatically generate prompt from content when in Auto-Pilot mode
-  // This acts as a failsafe or autonomous behavior if the prompt isn't provided by the parent immediately
-  useEffect(() => {
-    if (isAutoGenerating && generatedContent && !prompt && !initialPrompt && !isPromptLoading) {
-      handleAutoPrompt();
-    }
-  }, [isAutoGenerating, generatedContent, prompt, initialPrompt, isPromptLoading, handleAutoPrompt]);
-
   const handleDownload = () => {
       if (!imageUrl) return;
       const link = document.createElement('a');

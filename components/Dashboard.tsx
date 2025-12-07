@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { UserProfile, ScheduledPost, ActivityLog, AutoPilotConfig, AutoPilotPhase } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -66,6 +65,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
 
   // --- CHECK IF USER IS CONFIGURED ---
   const isGuest = user.id === 'guest';
+  const [showGuestWarning, setShowGuestWarning] = useState(true);
 
   const addLog = useCallback((
     agent: string,
@@ -270,8 +270,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
       <main className="p-4 sm:p-6 lg:p-8 max-w-8xl mx-auto">
         
         {/* Warning for Guest User */}
-        {isGuest && (
-            <div className="bg-yellow-900/50 border border-yellow-600 rounded-lg p-4 mb-6 flex justify-between items-center animate-fade-in shadow-lg">
+        {isGuest && showGuestWarning && (
+            <div className="bg-yellow-900/50 border border-yellow-600 rounded-lg p-4 mb-6 flex flex-col sm:flex-row justify-between items-center animate-fade-in shadow-lg gap-4 relative">
                 <div className="flex items-center gap-3">
                     <span className="text-2xl">⚠️</span>
                     <div>
@@ -279,12 +279,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
                         <p className="text-sm text-yellow-100">Vui lòng vào <b>Cài đặt (biểu tượng bánh răng)</b> để nhập <b>Token Facebook</b> và <b>Gemini API Key</b> để sử dụng các tính năng.</p>
                     </div>
                 </div>
-                <button 
-                    onClick={onOpenSettings}
-                    className="bg-yellow-600 hover:bg-yellow-500 text-black font-bold py-2 px-4 rounded shadow-md transition"
-                >
-                    Mở Cài đặt ngay
-                </button>
+                <div className="flex gap-2">
+                     <button 
+                        onClick={onOpenSettings}
+                        className="bg-yellow-600 hover:bg-yellow-500 text-black font-bold py-2 px-4 rounded shadow-md transition"
+                    >
+                        Mở Cài đặt ngay
+                    </button>
+                    <button 
+                        onClick={() => setShowGuestWarning(false)}
+                        className="bg-gray-800 hover:bg-gray-700 text-gray-400 py-2 px-3 rounded border border-gray-600 shadow-md transition"
+                        title="Tắt cảnh báo này"
+                    >
+                        ✕ Đóng
+                    </button>
+                </div>
             </div>
         )}
 
@@ -341,6 +350,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onOpenSettings })
                     videoTitle={generatedTitle || 'New Video'}
                     niche={autoPilotConfig.niche}
                     onThumbnailGenerated={setGeneratedThumbnailUrl}
+                    generatedThumbnail={generatedThumbnailUrl} // Pass the generated thumbnail for display
                     isAutoGenerating={autoPilotPhase === 'GENERATING_THUMBNAIL'}
                 />
             </div>
